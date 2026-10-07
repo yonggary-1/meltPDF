@@ -61,7 +61,7 @@ class App:
         self.loader.register_drop_targets((self.view.canvas, self.hint_label, root))
 
     def _build_hint(self) -> ttk.Label:
-        hint = "이미지 파일이나 폴더를 아래로 드래그하세요. (zip/cbz는 안의 이미지만 꺼내고, PDF는 페이지로 열립니다 / 썸네일을 눌러서 끌면 순서를 바꿀 수 있습니다)"
+        hint = "이미지 파일이나 폴더를 아래로 드래그하세요. (zip/rar/cbz/cbr은 안의 이미지만 꺼내고, PDF는 페이지로 열립니다 / 썸네일을 눌러서 끌면 순서를 바꿀 수 있습니다)"
         if not HAS_DND:
             hint = "[드래그앤드롭 비활성 - tkinterdnd2 미설치] 위 버튼으로 이미지/폴더/PDF를 추가하세요. (썸네일을 눌러서 끌면 순서를 바꿀 수 있습니다)"
         label = ttk.Label(self.root, text=hint, padding=(8, 4))
@@ -80,16 +80,17 @@ class App:
 
         tb.add(ttk.Button(tb, text="선택 항목 표지로 지정", command=self.actions.set_cover_selected))
         tb.add(ttk.Button(tb, text="표지 해제", command=self.actions.clear_cover))
-        tb.add(ttk.Button(tb, text="파일명 순차 정렬", command=self.renamer.open_dialog), gap_before=8)
+        tb.add(ttk.Button(tb, text="파일명 변경하기", command=self.renamer.open_dialog), gap_before=8)
 
         tb.add(ttk.Separator(tb, orient=tk.VERTICAL), gap_before=8)
-        tb.add(ttk.Label(tb, text="보기:"))
-        tb.add(ttk.Radiobutton(tb, text="타일형", value="grid",
-                               variable=self.view.view_mode_var,
-                               command=self.view.on_view_mode_change))
-        tb.add(ttk.Radiobutton(tb, text="목록형", value="list",
-                               variable=self.view.view_mode_var,
-                               command=self.view.on_view_mode_change))
+        # "보기:" 라벨과 라디오 버튼은 한 덩어리(프레임 하나)로 추가한다 - 줄바꿈될 때 중간에서
+        # 갈라지지 않고 통째로 다음 줄로 내려가게 하려는 것.
+        view_group = ttk.Frame(tb)
+        ttk.Label(view_group, text="보기:").pack(side=tk.LEFT)
+        for text, value in (("타일형", "grid"), ("목록형", "list")):
+            ttk.Radiobutton(view_group, text=text, value=value, variable=self.view.view_mode_var,
+                            command=self.view.on_view_mode_change).pack(side=tk.LEFT, padx=(6, 0))
+        tb.add(view_group)
 
         tb.add(ttk.Separator(tb, orient=tk.VERTICAL), gap_before=8)
         tb.add(ttk.Checkbutton(tb, text="드래그할 때 썸네일 따라다니기",

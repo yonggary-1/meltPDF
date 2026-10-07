@@ -9,11 +9,12 @@ from __future__ import annotations
 import os
 from typing import Callable, List, Optional
 
+import archive_rar
 import archive_zip
 from book_common import BookError, ExtractedImage, ProgressFn, noop_progress
 
 # 사용자가 고를 수 있는 확장자(파일 선택 창 필터와 드래그앤드롭 판정에 쓴다)
-SUPPORTED_EXTS = (".zip", ".cbz")
+SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr")
 
 
 def is_supported(path: str) -> bool:
@@ -28,15 +29,19 @@ def _sniff(path: str) -> Optional[str]:
         raise BookError(f"파일을 열 수 없습니다: {e}")
     if head[:4] in (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"):
         return "zip"
+    if head[:7] == b"Rar!\x1a\x07\x00" or head[:8] == b"Rar!\x1a\x07\x01\x00":   # RAR 4 / RAR 5
+        return "rar"
     return None
 
 
 # 포맷별 읽기 함수: reader(path, on_progress, to_ram) / 꺼낼 이미지 크기 추정 함수: estimator(path)
 READERS: dict[str, Callable[[str, ProgressFn, bool], List[ExtractedImage]]] = {
     "zip": archive_zip.extract_zip,
+    "rar": archive_rar.extract_rar,
 }
 ESTIMATORS: dict[str, Callable[[str], int]] = {
     "zip": archive_zip.estimate_bytes,
+    "rar": archive_rar.estimate_bytes,
 }
 
 

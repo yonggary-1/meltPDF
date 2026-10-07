@@ -1,5 +1,5 @@
 """
-파일명 순차 정렬 - 모든 작업을 끝내고 PDF를 만들기 직전에, 목록의 현재 순서(표지가 있으면 표지가 맨 앞)에
+파일명 변경하기 - 모든 작업을 끝내고 PDF를 만들기 직전에, 목록의 현재 순서(표지가 있으면 표지가 맨 앞)에
 맞춰 이름을 `접두사 + 4자리 번호`로 일괄 다시 붙인다. 예: ABC0001.jpg, ABC0002.jpg, ...
 "순서와 이름을 통일시키는 것"이 목적이라, 끌어서 순서를 바꾼 뒤에 눌러도 그 순서대로 번호가 매겨진다.
 
@@ -58,7 +58,7 @@ class RenamePages:
             return
 
         win = tk.Toplevel(self.root)
-        win.title("파일명 순차 정렬")
+        win.title("파일명 변경하기")
         win.transient(self.root)
         win.resizable(False, False)
         frm = ttk.Frame(win, padding=12)
