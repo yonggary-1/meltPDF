@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# PyInstaller 빌드 결과
+build/
+dist/
+*.spec
+
+# 실행 중 생기는 파일
+crash_log.txt
+settings.json
+
+# 배포용 압축 파일 / 빌드 산출물
+*.zip
+*.exe
