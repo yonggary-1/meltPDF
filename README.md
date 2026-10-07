@@ -21,7 +21,7 @@ Windows에서 `python`이 3.9 이상이면 됩니다. (tkinter는 보통 Windows
 
 ## 기능
 
-1. **이미지/폴더/압축 파일 추가** — 이미지 파일이나 폴더를 목록으로 드래그하면 자동으로 썸네일이 생성됩니다. (버튼으로도 추가 가능) zip/rar/cbz/cbr 파일은 안의 이미지만 파일 이름 순서(2가 10보다 앞)로 꺼내서 넣습니다. rar/cbr은 컴퓨터에 압축 해제 도구(7-Zip, WinRAR 또는 UnRAR.exe)가 있어야 열립니다(아래 "RAR 도구" 참고).
+1. **이미지/폴더/압축 파일 추가** — 이미지 파일이나 폴더를 목록으로 드래그하면 자동으로 썸네일이 생성됩니다. (버튼으로도 추가 가능) zip/rar/cbz/cbr 파일은 안의 이미지만 파일 이름 순서(2가 10보다 앞)로 꺼내서 넣습니다. rar/cbr은 프로그램에 같이 들어 있는 UnRAR로 풉니다(아래 "RAR/CBR 지원과 UnRAR.exe" 참고).
 2. **타일형 / 목록형 보기** — 툴바의 "보기" 라디오버튼으로 아이콘 그리드(타일형, 기본값)와 한 줄씩 자세히 보기(목록형)를 전환할 수 있습니다. 썸네일은 어느 모드에서든 잘리지 않고 이미지 전체 비율 그대로 표시됩니다.
 3. **순서 변경** — 썸네일을 마우스로 누른 채로 끌면, 그 썸네일 자체가 커서를 따라다니다가 원하는 위치에 놓으면 순서가 바뀝니다. PDF는 이 목록 순서대로 만들어집니다. 목록에서는 키보드로도 이동할 수 있습니다(방향키, Home/End, PageUp/PageDown - 이동한 항목이 선택되고 화면 밖이면 자동으로 스크롤).
 4. **표지 지정** — 항목을 선택하고 "선택 항목 표지로 지정"을 누르면 그 이미지가 항상 1페이지가 됩니다(목록에서의 위치와 무관). "표지 해제"로 취소할 수 있습니다.
@@ -52,7 +52,8 @@ Windows에서 `python`이 3.9 이상이면 됩니다. (tkinter는 보통 Windows
 | `book_loader.py` | 압축/책 파일(zip, rar, cbz, cbr 등)에서 이미지 추출 - 파일 선택/드롭/진행 표시/오류 안내 |
 | `book_import.py` | 책/압축 파일 종류를 파일 앞부분(시그니처)으로 판별해 알맞은 읽기 모듈로 넘김 |
 | `archive_rar.py` | rar/cbr 읽기 (이름 순, 암호/폭탄/손상 거절) - 목차는 rarfile로 읽고 풀기는 rar_tool에 맡김 |
-| `rar_tool.py` | RAR를 풀어 줄 도구 찾기/실행 (UnRAR, 7-Zip, unar, bsdtar/윈도우 tar 순, 실패하면 다음 도구) |
+| `rar_tool.py` | RAR를 풀어 줄 도구 찾기/실행 (같이 들어 있는 tools/UnRAR.exe 우선, 실패하면 7-Zip 등 다음 도구) |
+| `tools/` | 같이 배포하는 외부 도구: `UnRAR.exe`와 출처/라이선스/만드는 방법 (`README.md`, `UnRAR_license.txt`, `unrar-mingw.patch`, `build_unrar_windows.sh`) |
 | `archive_zip.py` | zip/cbz 읽기 (이름 순, 한글 이름 복원, 암호/폭탄 거절) |
 | `natural_sort.py` | 이름 자연 정렬 규칙 (2 < 10, 폴더 단위 비교, 대소문자 무시) - 압축 파일 정렬에 사용 |
 | `book_common.py` | 책/압축 읽기 공통 부분 (오류 종류, 결과 자료형, 이미지 이름 판정) |
@@ -69,15 +70,14 @@ Windows에서 `python`이 3.9 이상이면 됩니다. (tkinter는 보통 Windows
 | `crash_log.py` | 오류를 `crash_log.txt`와 메시지박스로 기록 |
 | `pdf_core.py` | PDF 생성/읽기 핵심 로직 (GUI와 무관) |
 
-## RAR 도구 (rar/cbr을 열 때 필요)
+## RAR/CBR 지원과 UnRAR.exe
 
-RAR 압축을 푸는 방법은 라이선스상 UnRAR 계열 도구만 쓸 수 있어서, 이 프로그램은 직접 풀지 않고 컴퓨터에 있는 도구에 맡깁니다. 아래 중 **하나만** 있으면 됩니다(위에 있는 것이 우선):
+RAR 압축을 푸는 파이썬 라이브러리는 없어서, 공식 **UnRAR**(RARLAB, Alexander Roshal)을 `tools/UnRAR.exe`로 프로그램에 같이 넣었습니다(`build.bat`이 exe 안에 포함시킵니다). 그래서 **7-Zip이나 WinRAR을 따로 설치하지 않아도** rar/cbr이 열립니다. UnRAR 라이선스는 RAR를 푸는 용도로 다른 프로그램에 넣어 배포하는 것을 허용합니다(RAR 압축을 *만드는* 데는 쓸 수 없음).
 
-1. `UnRAR.exe`를 `meltPDF.exe`와 같은 폴더(또는 그 안의 `tools` 폴더)에 넣기
-2. **7-Zip** 설치 (무료, https://7-zip.org) 또는 **WinRAR** 설치
-3. 윈도우 10/11에 기본으로 들어 있는 `tar.exe`(연속(solid) 압축 rar는 못 풀 수 있음)
-
-어느 것도 없으면 열 때 안내 창이 뜹니다. 풀리는 동안만 디스크 임시 폴더를 쓰고 끝나면 지웁니다(메모리 방식이어도 마찬가지). 암호가 걸린 rar는 지원하지 않습니다.
+- 출처, 정확한 버전, 만든 방법, 소스 수정 내역(한 줄), SHA-256, 라이선스 전문: [`tools/README.md`](tools/README.md)
+- 쓰는 모든 외부 소프트웨어의 출처/라이선스와 검토했지만 쓰지 않은 것들: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+- 예비 순서: 같이 들어 있는 UnRAR.exe를 쓸 수 없으면 사용자가 exe 옆에 둔 UnRAR.exe/7z.exe -> 설치된 WinRAR/7-Zip -> PATH의 도구 -> 윈도우 기본 `tar.exe` 순으로 시도합니다.
+- 풀리는 동안만 디스크 임시 폴더를 쓰고 끝나면 지웁니다(메모리 방식이어도 마찬가지). 암호가 걸린 rar는 지원하지 않습니다.
 
 새 기능을 넣을 때: 자기 파일을 새로 만들고, 목록을 바꿀 땐 `DocModel` 메서드를 통해서만 바꾸고, `app_window.py`에서는 객체를 만들고 버튼 한 줄만 추가합니다. 타일 영역(`tile_view.py`)에는 자식 위젯을 넣지 않습니다(캔버스 아이템으로만 그림) - 위젯이 겹치면 드래그 때 얼룩이 생기는 문제가 다시 살아납니다.
 
@@ -101,4 +101,4 @@ RAR 압축을 푸는 방법은 라이선스상 UnRAR 계열 도구만 쓸 수 �
 
 ## 라이선스
 
-이 프로젝트의 라이선스는 아직 정해지지 않았습니다(라이선스 미지정, 모든 권리 보유). 함께 쓰는 외부 소프트웨어(Pillow, img2pdf, pikepdf, PyMuPDF, rarfile, UnRAR 등)는 각자의 라이선스를 따릅니다.
+이 프로젝트의 라이선스는 아직 정해지지 않았습니다(라이선스 미지정, 모든 권리 보유). 함께 쓰는 외부 소프트웨어(Pillow, img2pdf, pikepdf, PyMuPDF, rarfile, UnRAR 등)는 각자의 라이선스를 따릅니다. 출처와 라이선스는 `THIRD_PARTY_NOTICES.md`와 `tools/README.md`에 있습니다.

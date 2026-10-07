@@ -16,3 +16,4 @@ settings.json
 # 배포용 압축 파일 / 빌드 산출물
 *.zip
 *.exe
+!tools/UnRAR.exe

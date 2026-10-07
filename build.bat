@@ -62,7 +62,7 @@ if exist meltPDF.spec del /q meltPDF.spec
 
 echo.
 echo [5/5] Building EXE... (this can take a few minutes)
-pyinstaller --noconfirm --onefile --windowed --name "meltPDF" --collect-all tkinterdnd2 --collect-all fitz --collect-all pymupdf --collect-all PIL --collect-all pikepdf --collect-all img2pdf main.py
+pyinstaller --noconfirm --onefile --windowed --name "meltPDF" --collect-all tkinterdnd2 --collect-all fitz --collect-all pymupdf --collect-all PIL --collect-all pikepdf --collect-all img2pdf --add-data "tools\UnRAR.exe;tools" --add-data "tools\UnRAR_license.txt;tools" --add-data "THIRD_PARTY_NOTICES.md;." main.py
 
 if errorlevel 1 (
     echo.
