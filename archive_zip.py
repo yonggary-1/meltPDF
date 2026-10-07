@@ -1,8 +1,8 @@
 """
-ZIP / CBZ 읽기 - 압축 파일 안의 이미지를 "파일에 저장된 순서" 그대로 꺼낸다(이름 순이 아님).
+ZIP / CBZ 읽기 - 압축 파일 안의 이미지를 "파일 이름 순서"(자연 정렬)로 꺼낸다.
 
-- 저장 순서 = 파일 안에서 각 항목이 실제로 기록된 위치(header_offset) 순서. 중앙 디렉터리 목록
-  순서는 도구에 따라 다를 수 있어서 쓰지 않는다.
+- zip은 안의 파일에 의미 있는 순서가 없다(압축한 도구/시점에 따라 저장 순서가 제각각). 그래서
+  저장 순서가 아니라 경로 이름 순으로 정렬한다 - 정렬 규칙은 natural_sort.py (2 < 10, 폴더 단위 비교).
 - 이미지는 재인코딩 없이 원본 바이트 그대로 꺼낸다(메모리 또는 디스크 임시 폴더 - 호출하는 쪽이 고른다).
 - 윈도우 한글 zip(이름이 cp949인데 UTF-8 표시가 없는 것)의 깨진 이름을 복원한다. 이름은 목록 표시용이고
   순서와는 무관하다.
@@ -16,6 +16,7 @@ import zipfile
 from pathlib import PurePosixPath
 from typing import List
 
+from natural_sort import path_key
 from book_common import BookError, ExtractedImage, ProgressFn, is_image_name, noop_progress
 import temp_store
 
@@ -90,7 +91,7 @@ def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
             name = _entry_name(info)
             if not info.is_dir() and is_image_name(name):
                 candidates.append((info, name))
-        candidates.sort(key=lambda pair: pair[0].header_offset)   # 파일에 저장된 순서
+        candidates.sort(key=lambda pair: path_key(pair[1]))   # 이름 순(자연 정렬)
 
         if any(info.flag_bits & 0x1 for info, _ in candidates):
             raise BookError("암호가 걸린 zip은 아직 지원하지 않습니다.")

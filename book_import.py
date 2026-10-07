@@ -58,7 +58,8 @@ def estimate_image_bytes(path: str) -> int:
 
 def extract_images(path: str, on_progress: ProgressFn = noop_progress,
                    to_ram: bool = True) -> List[ExtractedImage]:
-    """파일 안의 이미지를 저장된 순서대로 꺼내서 돌려준다(to_ram이면 메모리, 아니면 디스크 임시 폴더).
+    """파일 안의 이미지를 꺼내서 돌려준다. 순서는 형식마다 다르다: zip/rar 같은 압축 파일은 이름 순(자연 정렬),
+    책 형식(epub/mobi/pdf 등)은 파일에 들어 있는 순서(to_ram이면 메모리, 아니면 디스크 임시 폴더).
     실패하면 BookError."""
     kind = _sniff(path)
     reader = READERS.get(kind) if kind else None

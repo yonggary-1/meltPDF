@@ -58,11 +58,11 @@ echo.
 echo [4/5] Cleaning previous build output...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
-if exist Image2PDF.spec del /q Image2PDF.spec
+if exist meltPDF.spec del /q meltPDF.spec
 
 echo.
 echo [5/5] Building EXE... (this can take a few minutes)
-pyinstaller --noconfirm --onefile --windowed --name "Image2PDF" --collect-all tkinterdnd2 --collect-all fitz --collect-all pymupdf --collect-all PIL --collect-all pikepdf --collect-all img2pdf main.py
+pyinstaller --noconfirm --onefile --windowed --name "meltPDF" --collect-all tkinterdnd2 --collect-all fitz --collect-all pymupdf --collect-all PIL --collect-all pikepdf --collect-all img2pdf main.py
 
 if errorlevel 1 (
     echo.
@@ -73,10 +73,10 @@ if errorlevel 1 (
 
 echo.
 echo ===================================================
-echo   Done! Check dist\Image2PDF.exe
+echo   Done! Check dist\meltPDF.exe
 echo ===================================================
 echo.
-if exist dist\Image2PDF.exe (
-    explorer.exe /select,"dist\Image2PDF.exe"
+if exist dist\meltPDF.exe (
+    explorer.exe /select,"dist\meltPDF.exe"
 )
 pause

@@ -1,5 +1,5 @@
 """
-사용자 설정 저장 - 작은 JSON 파일 하나(윈도우: %APPDATA%\\Image2PDF\\settings.json).
+사용자 설정 저장 - 작은 JSON 파일 하나(윈도우: %APPDATA%\\meltPDF\\settings.json).
 읽기/쓰기에 실패해도 프로그램은 기본값으로 계속 동작해야 하므로 모든 입출력은 조용히 실패한다.
 설정 화면은 settings_dialog.py, 설정값을 실제로 쓰는 곳은 storage_policy.py 등 각 기능 파일이다.
 """
@@ -27,7 +27,7 @@ def default_path() -> Path:
         base = Path(os.environ.get("APPDATA") or Path.home())
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    return base / "Image2PDF" / "settings.json"
+    return base / "meltPDF" / "settings.json"
 
 
 class Settings:

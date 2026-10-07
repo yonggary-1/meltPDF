@@ -16,8 +16,8 @@ except Exception:
     TkinterDnD = None
     HAS_DND = False
 
-APP_NAME = "Image2PDF"
-APP_VERSION = "0.4.0"           # 실제로 확인된(고쳐졌다고 검증된) 진전이 있을 때만 올릴 것 - 같은 버그를 다시 시도하는 빌드는 버전을 올리지 않고 재사용한다
+APP_NAME = "meltPDF"
+APP_VERSION = "0.5.0"           # 실제로 확인된(고쳐졌다고 검증된) 진전이 있을 때만 올릴 것 - 같은 버그를 다시 시도하는 빌드는 버전을 올리지 않고 재사용한다
 WINDOW_TITLE = f"{APP_NAME} v{APP_VERSION}"   # 창 타이틀바(버전 포함)
 APP_TITLE = APP_NAME                          # 메시지박스 등에는 버전 없이 표시
 

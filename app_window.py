@@ -14,6 +14,7 @@ from doc_model import DocModel
 from drag_reorder import DragReorder
 from export import Exporter
 from file_loader import FileLoader
+from key_nav import KeyNav
 from load_queue import LoadQueue
 from page_actions import PageActions
 from rename_pages import RenamePages
@@ -44,6 +45,7 @@ class App:
         self.view.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(4, 0))
 
         self.selection = Selection(self.view, self.model)
+        self.keynav = KeyNav(self.view, self.model)
         self.drag = DragReorder(root, self.view, self.model)
         self.jobs = LoadQueue(root)        # 불러오기 작업을 넣은 순서대로 처리하는 공용 대기열
         self.loader = FileLoader(root, self.model, self.status, self.jobs)

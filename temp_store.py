@@ -18,7 +18,7 @@ _dir: Optional[str] = None
 def _ensure_dir() -> str:
     global _dir
     if _dir is None or not os.path.isdir(_dir):
-        _dir = tempfile.mkdtemp(prefix="Image2PDF_")
+        _dir = tempfile.mkdtemp(prefix="meltPDF_")
         atexit.register(cleanup)
     return _dir
 
