@@ -16,6 +16,7 @@ exe에 같이 넣어 두고(tools/UnRAR.exe - 출처와 라이선스는 tools/RE
 """
 from __future__ import annotations
 
+import locale
 import os
 import shutil
 import subprocess
@@ -32,6 +33,9 @@ Tool = Tuple[str, str]
 INSTALL_HINT = ("rar/cbr을 열려면 압축 해제 도구가 필요한데, 프로그램에 들어 있는 UnRAR.exe를 쓸 수 없었습니다.\n"
                 "7-Zip(무료, https://7-zip.org)을 설치하거나, 공식 UnRAR.exe를 이 프로그램과 같은 폴더에 넣어 주세요.\n"
                 "(WinRAR가 설치되어 있으면 그것도 자동으로 사용합니다.)")
+
+FAIL_HINT = ("파일이 손상되었거나 다운로드가 끝나지 않았을 수 있습니다. 다른 프로그램(WinRAR, 7-Zip)으로도 풀리지 않는지 확인해 보세요.\n"
+             "이 창의 내용을 그대로 알려 주시면 원인을 찾는 데 도움이 됩니다.")
 
 IS_WINDOWS = os.name == "nt"
 
@@ -106,7 +110,7 @@ def find_tools() -> List[Tool]:
 
 def _command(kind: str, exe: str, archive: str, dest: str) -> List[str]:
     if kind == "unrar":
-        return [exe, "x", "-y", "-idq", "-p-", "-o+", archive, dest + os.sep]
+        return [exe, "x", "-y", "-idq", "-p-", "-o+", "-kb", archive, dest + os.sep]   # -kb: 깨진 파일도 풀린 데까지 남겨 둔다
     if kind == "7z":
         return [exe, "x", "-y", "-bso0", "-bsp0", f"-o{dest}", archive]
     if kind == "unar":
@@ -139,33 +143,118 @@ def _reset_dir(folder: str) -> None:
                 pass
 
 
+def bundled_unrar_status() -> str:
+    """프로그램에 같이 들어 있어야 하는 UnRAR.exe가 실제로 있는지 한 줄로 알려 준다(오류 안내에 붙임).
+    없으면 설치 환경 문제(백신이 지움, 빌드에서 빠짐 등)를 의심할 수 있다."""
+    if not IS_WINDOWS:
+        return ""
+    paths = []
+    for base in (getattr(sys, "_MEIPASS", None), Path(__file__).resolve().parent):
+        if base:
+            p = Path(base) / "tools" / "UnRAR.exe"
+            if str(p) not in paths:
+                paths.append(str(p))
+    parts = []
+    for p in paths:
+        try:
+            parts.append(f"{p} - " + (f"있음 ({os.path.getsize(p):,}바이트)" if os.path.isfile(p) else "없음"))
+        except OSError as e:
+            parts.append(f"{p} - 확인 실패 ({e})")
+    return "내장 UnRAR.exe 위치: " + " / ".join(parts)
+
+
+def _decode(raw: bytes) -> str:
+    """도구가 출력한 글자를 읽을 수 있게 바꾼다. 윈도우 도구(tar.exe 등)는 UTF-8이 아니라 시스템 문자 코드(한국어 윈도우는 cp949)로 내보낸다."""
+    for enc in ("utf-8", "mbcs" if os.name == "nt" else (locale.getpreferredencoding(False) or "utf-8")):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return raw.decode("utf-8", "replace")
+
+
+# 일부 파일만 문제가 있어도 나머지는 풀리는 종료 코드 - 풀린 파일이 하나라도 있으면 그 결과를 쓴다.
+#   unrar: 1 = 경고, 3 = 손상된 파일(체크섬 오류)이 있음 (-kb 옵션으로 깨진 파일도 풀린 데까지 남긴다)
+#   7z:    1 = 경고
+PARTIAL_OK = {"unrar": (1, 3), "7z": (1,)}
+
+
+def _run_tool(kind: str, exe: str, archive: str, dest: str, on_count: Callable[[int], None]) -> Tuple[int, str, int]:
+    """도구 하나를 실행한다. (종료 코드, 도구가 낸 마지막 메시지, 풀린 파일 수)를 돌려준다. 실행 자체를 못 하면 종료 코드 -1."""
+    _reset_dir(dest)
+    with tempfile.TemporaryFile() as out:
+        try:
+            proc = subprocess.Popen(_command(kind, exe, archive, dest), stdin=subprocess.DEVNULL,
+                                    stdout=out, stderr=subprocess.STDOUT, **_popen_flags())
+        except OSError as e:
+            return -1, f"실행하지 못함 ({e})", 0
+        while True:
+            try:
+                proc.wait(timeout=0.3)
+                break
+            except subprocess.TimeoutExpired:
+                on_count(_count_files(dest))
+        count = _count_files(dest)
+        on_count(count)
+        out.seek(0)
+        lines = [ln.strip() for ln in _decode(out.read()).splitlines() if ln.strip()]
+        detail = " / ".join(lines[-2:])[:300] if lines else "출력 없음"
+        return proc.returncode, detail, count
+
+
+def _ascii_alias(archive: str, folder: str) -> Optional[str]:
+    """일본어/중국어 등이 든 경로를 제대로 못 받는 도구(윈도우 tar.exe 등)를 위해, 같은 파일을 영문 이름으로 가리키게 한다.
+    하드링크(같은 드라이브면 복사 없음) -> 복사 순서로 시도하고, 안 되면 None."""
+    alias = os.path.join(folder, "archive.rar")
+    for attempt in (os.link, shutil.copyfile):
+        try:
+            attempt(archive, alias)
+            return alias
+        except OSError:
+            continue
+    return None
+
+
 def extract_all(archive: str, dest: str, on_count: Callable[[int], None],
-                tools: Optional[List[Tool]] = None) -> None:
+                tools: Optional[List[Tool]] = None) -> str:
     """archive를 dest 폴더에 전부 푼다. on_count(지금까지 풀린 파일 수)를 주기적으로 부른다.
-    도구가 실패하면 다음 도구로 다시 시도하고, 전부 실패하면 BookError."""
+    도구가 실패하면 다음 도구로 다시 시도한다. 경로에 영문이 아닌 글자가 있어서 실패한 경우에는 영문 이름의 같은 파일로
+    한 번 더 시도한다. 전부 실패하면 시도한 도구마다의 실패 이유를 담아 BookError를 낸다.
+    돌려주는 값: 정상이면 "", 일부 파일에 문제가 있었지만 나머지는 풀렸으면 그 사실을 알리는 문장(경고)."""
     tools = find_tools() if tools is None else tools
     if not tools:
         raise BookError(INSTALL_HINT)
-    last_error = ""
-    for kind, exe in tools:
-        _reset_dir(dest)
-        with tempfile.TemporaryFile() as err:
-            try:
-                proc = subprocess.Popen(_command(kind, exe, archive, dest), stdin=subprocess.DEVNULL,
-                                        stdout=subprocess.DEVNULL, stderr=err, **_popen_flags())
-            except OSError as e:
-                last_error = f"{Path(exe).name}: {e}"
-                continue
-            while True:
-                try:
-                    proc.wait(timeout=0.3)
-                    break
-                except subprocess.TimeoutExpired:
-                    on_count(_count_files(dest))
-            on_count(_count_files(dest))
-            if proc.returncode == 0:
-                return
-            err.seek(0)
-            msg = err.read().decode("utf-8", "replace").strip().splitlines()
-            last_error = f"{Path(exe).name}: " + (msg[-1] if msg else f"종료 코드 {proc.returncode}")
-    raise BookError("rar 압축을 풀지 못했습니다 (" + last_error + ")\n\n" + INSTALL_HINT)
+    failures: List[str] = []
+    alias_dir: Optional[str] = None
+    alias_path: Optional[str] = None
+
+    def attempt(kind: str, label: str, exe: str, path: str) -> Optional[str]:
+        rc, detail, count = _run_tool(kind, exe, path, dest, on_count)
+        if rc == 0:
+            return ""
+        if rc in PARTIAL_OK.get(kind, ()) and count > 0:
+            return (f"압축 파일의 일부에 문제가 있었습니다({label} 종료 코드 {rc}: {detail}). "
+                    f"풀린 {count}개 파일을 사용합니다.")
+        failures.append(f"{label}: " + ("" if rc < 0 else f"종료 코드 {rc}: ") + detail)
+        return None
+
+    try:
+        for kind, exe in tools:
+            name = Path(exe).name
+            done = attempt(kind, name, exe, archive)
+            if done is not None:
+                return done
+            if not archive.isascii():
+                if alias_dir is None:
+                    alias_dir = tempfile.mkdtemp(prefix="meltPDF_arc_")
+                    alias_path = _ascii_alias(archive, alias_dir)
+                if alias_path:
+                    done = attempt(kind, f"{name}(영문 이름 사본)", exe, alias_path)
+                    if done is not None:
+                        return done
+    finally:
+        if alias_dir:
+            shutil.rmtree(alias_dir, ignore_errors=True)
+    status = bundled_unrar_status()
+    raise BookError("rar 압축을 풀지 못했습니다. 시도한 도구와 실패 이유:\n  " + "\n  ".join(failures)
+                    + ("\n\n" + status if status else "") + "\n\n" + FAIL_HINT)

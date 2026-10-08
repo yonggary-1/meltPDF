@@ -20,7 +20,7 @@ from typing import Callable, Dict, List, Optional
 
 import pdf_core
 from config import (
-    BG_COVER, BG_NORMAL, BG_SELECTED, GRID_PITCH_X, GRID_PITCH_Y, LIST_PITCH_Y,
+    BG_COVER, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_X, GRID_PITCH_Y, LIST_PITCH_Y,
     LIST_TILE_H, MARGIN, THUMB_MAX, TILE_H, TILE_W,
 )
 from doc_model import DocModel
@@ -203,8 +203,10 @@ class TileView:
         x, y, w, h = self.tile_rect(idx)
         tag = ("tile", f"tile:{iid}")
         c = self.canvas
+        damaged = getattr(item, "damaged", False)        # 손상된 이미지: 빨간 굵은 테두리
         items = {"rect": c.create_rectangle(x, y, x + w, y + h, fill=bg,
-                                            outline="#9a9a9a", tags=tag)}
+                                            outline=DAMAGED_OUTLINE if damaged else "#9a9a9a",
+                                            width=DAMAGED_OUTLINE_W if damaged else 1, tags=tag)}
 
         if self.view_mode_var.get() == "grid":
             items["img"] = c.create_image(x + w / 2, y + 4 + (THUMB_MAX + 8) / 2,
@@ -226,7 +228,7 @@ class TileView:
                                           text=f"{cover_mark}{item.label}",
                                           font=("", 10, "bold"), width=wrap, tags=tag)
             items["meta"] = c.create_text(tx, y + h / 2 + 12, anchor="w", justify="left",
-                                          text=f"{self._size_label(item)}   |   {kind_label}",
+                                          text=f"{self._size_label(item)}   |   {kind_label}" + ("   |   손상됨(일부만 표시)" if damaged else ""),
                                           fill="#555555", width=wrap, tags=tag)
         self.tile_items[iid] = items
 

@@ -24,6 +24,16 @@ class ExtractedImage:
     label: str                       # 목록에 보여줄 이름(파일 안에서의 경로)
     data: Optional[bytes] = None     # 메모리에 둔 경우
     path: Optional[str] = None       # 디스크 임시 폴더에 둔 경우
+    damaged: bool = False            # 압축 파일의 체크섬과 맞지 않는(깨진) 이미지 - 읽을 수 있는 부분만이라도 쓴다
+
+
+class ExtractResult(list):
+    """꺼낸 이미지 목록(그냥 list처럼 쓰면 됨) + 사용자에게 알려야 할 경고들(예: 손상되어 빼놓은 파일).
+    경고가 있어도 나머지 이미지는 정상적으로 쓴다."""
+
+    def __init__(self, items=(), warnings=None):
+        super().__init__(items)
+        self.warnings = list(warnings or [])
 
 
 def is_image_name(name: str) -> bool:

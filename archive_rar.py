@@ -11,13 +11,14 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import zlib
 from pathlib import PurePosixPath
 from typing import List, Tuple
 
 import rarfile
 
 import temp_store
-from book_common import BookError, ExtractedImage, ProgressFn, is_image_name, noop_progress
+from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 from natural_sort import path_key
 import rar_tool
 
@@ -81,6 +82,37 @@ def _collect_images(folder: str) -> List[Tuple[str, str]]:
     return out
 
 
+def _missing_names(infos: list, images: List[Tuple[str, str]]) -> List[str]:
+    """목차에는 있는데 풀린 폴더에는 없는 이미지 이름(손상되어 도구가 지운 것). 개수가 같으면 이름 해석 차이일 뿐이므로 없는 것으로 본다."""
+    expected = [i.filename.replace("\\", "/") for i in infos]
+    if len(images) >= len(expected):
+        return []
+    got = {rel for rel, _full in images}
+    names = [n for n in expected if n not in got]
+    return names[: len(expected) - len(images)] if len(names) > len(expected) - len(images) else names
+
+
+def _damaged_names(infos: list, images: List[Tuple[str, str]]) -> set:
+    """풀린 이미지 중 압축 파일에 적힌 CRC32와 맞지 않는(깨진) 것의 이름. 이름/인코딩과 무관하게 내용으로 판별한다.
+    CRC가 적혀 있지 않은 항목은 확인할 수 없으므로 건너뛴다."""
+    expected = {i.filename.replace("\\", "/"): i.CRC for i in infos if getattr(i, "CRC", None) is not None}
+    bad = set()
+    for rel, full in images:
+        want = expected.get(rel)
+        if want is None:
+            continue
+        crc = 0
+        with open(full, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                crc = zlib.crc32(chunk, crc)
+        if (crc & 0xFFFFFFFF) != (want & 0xFFFFFFFF):
+            bad.add(rel)
+    return bad
+
+
 def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
                 to_ram: bool = False) -> List[ExtractedImage]:
     with _open(path) as rf:
@@ -98,23 +130,35 @@ def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
     total = len(rf.infolist())
     work = tempfile.mkdtemp(prefix="meltPDF_rar_")
     try:
-        rar_tool.extract_all(path, work, lambda n: on_progress(min(n, total), total))
+        tool_warning = rar_tool.extract_all(path, work, lambda n: on_progress(min(n, total), total))
         images = _collect_images(work)
         if not images:
             raise BookError("압축은 풀었지만 이미지를 찾지 못했습니다.")
         if sum(os.path.getsize(full) for _rel, full in images) > MAX_TOTAL_BYTES:
             raise BookError("이미지 전체 크기가 너무 큽니다(16GB 초과).")
-        results: List[ExtractedImage] = []
+        warnings: List[str] = []
+        missing = _missing_names(infos, images)
+        damaged = _damaged_names(infos, images) if tool_warning else set()
+        if damaged:
+            shown = ", ".join(sorted(damaged)[:10]) + (f" 외 {len(damaged) - 10}개" if len(damaged) > 10 else "")
+            warnings.append(f"손상된 이미지 {len(damaged)}개: {shown} (읽을 수 있는 부분만 표시합니다)")
+        if tool_warning or missing:
+            if missing:
+                shown = ", ".join(missing[:10]) + (f" 외 {len(missing) - 10}개" if len(missing) > 10 else "")
+                warnings.append(f"손상되어 풀리지 않은 이미지 {len(missing)}개는 목록에서 빠졌습니다: {shown}")
+            if tool_warning:
+                warnings.append(tool_warning)
+        results = ExtractResult(warnings=warnings)
         for rel, full in images:
             if os.path.getsize(full) > MAX_ENTRY_BYTES:
                 raise BookError(f"항목 하나가 너무 큽니다(1GB 초과): {rel}")
             if to_ram:
                 with open(full, "rb") as f:
-                    results.append(ExtractedImage(label=rel, data=f.read()))
+                    results.append(ExtractedImage(label=rel, data=f.read(), damaged=rel in damaged))
             else:
                 dst = temp_store.new_path(PurePosixPath(rel).suffix.lower())
                 shutil.move(full, dst)
-                results.append(ExtractedImage(label=rel, path=dst))
+                results.append(ExtractedImage(label=rel, path=dst, damaged=rel in damaged))
         on_progress(total, total)
         return results
     except OSError as e:

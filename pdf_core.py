@@ -51,6 +51,7 @@ class PageItem:
     raster_bytes: Optional[bytes] = None  # kind='image'이고 재인코딩이 필요할 때만 사용(PNG bytes)
     origin_pdf: Optional[str] = None      # kind='pdf_page'일 때 원본 pdf 경로 (내보내기 시 실제로 사용)
     origin_page_no: Optional[int] = None  # kind='pdf_page'일 때 1-based 페이지 번호 (내보내기 시 실제로 사용)
+    damaged: bool = False                 # 압축 파일 안에서 깨져 있던 이미지(읽을 수 있는 부분만 표시) - 화면에서 빨간 테두리로 구분
 
 
 def _make_thumb_bytes(im: Image.Image) -> bytes:

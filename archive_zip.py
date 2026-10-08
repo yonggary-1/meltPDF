@@ -13,11 +13,12 @@ from __future__ import annotations
 import io
 import os
 import zipfile
+import zlib
 from pathlib import PurePosixPath
 from typing import List
 
 from natural_sort import path_key
-from book_common import BookError, ExtractedImage, ProgressFn, is_image_name, noop_progress
+from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 import temp_store
 
 MAX_ENTRY_BYTES = 1024 * 1024 * 1024        # 항목 하나 최대 1GB
@@ -45,22 +46,26 @@ def _entry_name(info: zipfile.ZipInfo) -> str:
     return name.replace("\\", "/")
 
 
-def _copy_limited(src, dst, name: str) -> None:
+def _copy_limited(src, dst, name: str, expected_crc: int = None) -> bool:
+    """src의 내용을 dst로 옮긴다. 데이터가 끝까지 정상이면 True, 중간에 깨졌거나(압축 데이터 오류) 체크섬이 안 맞으면
+    False(읽은 데까지는 dst에 남는다). 디스크 쓰기 오류 등은 그대로 예외."""
+    if hasattr(src, "_expected_crc"):
+        src._expected_crc = None            # zipfile이 체크섬이 틀리면 마지막 덩어리를 버리고 예외를 내므로, 체크섬은 아래에서 직접 확인한다
     written = 0
+    crc = 0
     while True:
-        chunk = src.read(_CHUNK)
+        try:
+            chunk = src.read(_CHUNK)
+        except (zipfile.BadZipFile, zlib.error, EOFError):
+            return False                    # 압축 데이터가 중간에서 깨짐 - 여기까지 읽은 것만 남긴다
         if not chunk:
-            return
+            break
         written += len(chunk)
         if written > MAX_ENTRY_BYTES:       # 헤더의 크기를 속이는 경우 대비
             raise BookError(f"항목 하나가 너무 큽니다(1GB 초과): {name}")
+        crc = zlib.crc32(chunk, crc)
         dst.write(chunk)
-
-
-def _read_limited(src, name: str) -> bytes:
-    buf = io.BytesIO()
-    _copy_limited(src, buf, name)
-    return buf.getvalue()
+    return expected_crc is None or (crc & 0xFFFFFFFF) == (expected_crc & 0xFFFFFFFF)
 
 
 def estimate_bytes(path: str) -> int:
@@ -98,22 +103,40 @@ def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
         if sum(info.file_size for info, _ in candidates) > MAX_TOTAL_BYTES:
             raise BookError("이미지 전체 크기가 너무 큽니다(16GB 초과).")
 
-        results: List[ExtractedImage] = []
+        results = ExtractResult()
         total = len(candidates)
         for done, (info, name) in enumerate(candidates, start=1):
             if info.file_size > MAX_ENTRY_BYTES:
                 raise BookError(f"항목 하나가 너무 큽니다(1GB 초과): {name}")
             try:
-                with zf.open(info) as src:
-                    if to_ram:
-                        data = _read_limited(src, name)
-                        results.append(ExtractedImage(label=name, data=data))
-                    else:
-                        out_path = temp_store.new_path(PurePosixPath(name).suffix.lower())
-                        with open(out_path, "wb") as dst:
-                            _copy_limited(src, dst, name)
-                        results.append(ExtractedImage(label=name, path=out_path))
-            except (zipfile.BadZipFile, OSError, EOFError, RuntimeError) as e:
+                damaged = False
+                try:
+                    src = zf.open(info)
+                except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError):
+                    src = None                                  # 항목 머리가 깨져 열 수도 없음
+                if src is None:
+                    results.warnings.append(f"손상되어 읽지 못한 이미지는 목록에서 뺐습니다: {name}")
+                else:
+                    with src:
+                        if to_ram:
+                            buf = io.BytesIO()
+                            ok = _copy_limited(src, buf, name, info.CRC)
+                            data = buf.getvalue()
+                            keep = bool(data)
+                            if keep:
+                                results.append(ExtractedImage(label=name, data=data, damaged=not ok))
+                        else:
+                            out_path = temp_store.new_path(PurePosixPath(name).suffix.lower())
+                            with open(out_path, "wb") as dst:
+                                ok = _copy_limited(src, dst, name, info.CRC)
+                            keep = os.path.getsize(out_path) > 0
+                            if keep:
+                                results.append(ExtractedImage(label=name, path=out_path, damaged=not ok))
+                    if not keep:
+                        results.warnings.append(f"손상되어 읽지 못한 이미지는 목록에서 뺐습니다: {name}")
+                    elif not ok:
+                        results.warnings.append(f"손상된 이미지: {name} (읽을 수 있는 부분만 표시합니다)")
+            except OSError as e:
                 raise BookError(f"'{name}'을(를) 읽지 못했습니다: {e}")
             on_progress(done, total)
         return results
