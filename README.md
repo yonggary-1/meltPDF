@@ -54,6 +54,7 @@ Windows에서 `python`이 3.9 이상이면 됩니다. (tkinter는 보통 Windows
 | `archive_rar.py` | rar/cbr 읽기 (이름 순, 암호/폭탄/손상 거절) - 목차는 rarfile로 읽고 풀기는 rar_tool에 맡김 |
 | `rar_tool.py` | RAR를 풀어 줄 도구 찾기/실행 (같이 들어 있는 tools/UnRAR.exe 우선, 실패하면 7-Zip 등 다음 도구) |
 | `tools/` | 같이 배포하는 외부 도구: `UnRAR.exe`와 출처/라이선스/만드는 방법 (`README.md`, `UnRAR_license.txt`, `unrar-mingw.patch`, `build_unrar_windows.sh`) |
+| `ROADMAP.md` | 앞으로의 작업 목표(다른 확장자 지원, 이미지 내보내기 사양, 이름 처리 공용화, RAM 표시) - 아직 구현하지 않은 계획 |
 | `archive_zip.py` | zip/cbz 읽기 (이름 순, 한글 이름 복원, 암호/폭탄 거절) |
 | `natural_sort.py` | 이름 자연 정렬 규칙 (2 < 10, 폴더 단위 비교, 대소문자 무시) - 압축 파일 정렬에 사용 |
 | `book_common.py` | 책/압축 읽기 공통 부분 (오류 종류, 결과 자료형, 이미지 이름 판정) |
@@ -74,10 +75,12 @@ Windows에서 `python`이 3.9 이상이면 됩니다. (tkinter는 보통 Windows
 
 RAR 압축을 푸는 파이썬 라이브러리는 없어서, 공식 **UnRAR**(RARLAB, Alexander Roshal)을 `tools/UnRAR.exe`로 프로그램에 같이 넣었습니다(`build.bat`이 exe 안에 포함시킵니다). 그래서 **7-Zip이나 WinRAR을 따로 설치하지 않아도** rar/cbr이 열립니다. UnRAR 라이선스는 RAR를 푸는 용도로 다른 프로그램에 넣어 배포하는 것을 허용합니다(RAR 압축을 *만드는* 데는 쓸 수 없음).
 
-- 출처, 정확한 버전, 만든 방법, 소스 수정 내역(한 줄), SHA-256, 라이선스 전문: [`tools/README.md`](tools/README.md)
+- 출처, 정확한 버전, 만든 방법, 소스 수정 내역(코드 한 줄 + 유니코드 명령줄 컴파일 옵션), SHA-256, 라이선스 전문: [`tools/README.md`](tools/README.md)
 - 쓰는 모든 외부 소프트웨어의 출처/라이선스와 검토했지만 쓰지 않은 것들: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
 - 예비 순서: 같이 들어 있는 UnRAR.exe를 쓸 수 없으면 사용자가 exe 옆에 둔 UnRAR.exe/7z.exe -> 설치된 WinRAR/7-Zip -> PATH의 도구 -> 윈도우 기본 `tar.exe` 순으로 시도합니다.
 - 풀리는 동안만 디스크 임시 폴더를 쓰고 끝나면 지웁니다(메모리 방식이어도 마찬가지). 암호가 걸린 rar는 지원하지 않습니다.
+- 압축 파일 주석은 읽지 않습니다(RAR 3/4의 압축된 주석을 읽으려면 별도 unrar 도구가 필요해서, 목차를 읽는 단계에서 파일이 열리지 않는 원인이 되었습니다 - v0.8.0).
+- 압축 파일 경로나 안의 파일 이름에 일본어/중국어 등 한국어 윈도우 문자 코드(cp949)에 없는 글자가 있어도 되도록, 같이 들어 있는 UnRAR.exe는 명령줄을 유니코드로 받게 컴파일했습니다(v0.8.0).
 
 새 기능을 넣을 때: 자기 파일을 새로 만들고, 목록을 바꿀 땐 `DocModel` 메서드를 통해서만 바꾸고, `app_window.py`에서는 객체를 만들고 버튼 한 줄만 추가합니다. 타일 영역(`tile_view.py`)에는 자식 위젯을 넣지 않습니다(캔버스 아이템으로만 그림) - 위젯이 겹치면 드래그 때 얼룩이 생기는 문제가 다시 살아납니다.
 

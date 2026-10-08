@@ -21,6 +21,11 @@ from book_common import BookError, ExtractedImage, ProgressFn, is_image_name, no
 from natural_sort import path_key
 import rar_tool
 
+# rarfile은 RAR3/4의 압축된 "압축 파일 주석"을 읽을 때 외부 unrar 도구를 PATH에서 찾는다. 컴퓨터에 그런 도구가 없으면
+# 목차를 읽는 단계에서 "Cannot find working tool"로 실패해서 멀쩡한 rar가 열리지 않았다. 우리는 주석이 필요 없으므로
+# 읽을 최대 크기를 0으로 줄여 주석 읽기를 건너뛰게 한다(rarfile이 공개한 설정값이다).
+rarfile.RAR_MAX_COMMENT = 0
+
 MAX_ENTRY_BYTES = 1024 * 1024 * 1024        # 항목 하나 최대 1GB
 MAX_TOTAL_BYTES = 16 * 1024 * 1024 * 1024   # 이미지 전체 합계 최대 16GB
 
