@@ -14,6 +14,7 @@ from doc_model import DocModel
 from drag_reorder import DragReorder
 from export import Exporter
 from file_loader import FileLoader
+from image_viewer import ImageViewer
 from key_nav import KeyNav
 from load_queue import LoadQueue
 from page_actions import PageActions
@@ -47,6 +48,7 @@ class App:
         self.selection = Selection(self.view, self.model)
         self.keynav = KeyNav(self.view, self.model)
         self.drag = DragReorder(root, self.view, self.model)
+        self.viewer = ImageViewer(root, self.model, self.view)      # 썸네일 두 번 누름/Enter -> 원본 크기로 보는 창
         self.jobs = LoadQueue(root)        # 불러오기 작업을 넣은 순서대로 처리하는 공용 대기열
         self.loader = FileLoader(root, self.model, self.status, self.jobs)
         self.books = BookLoader(root, self.model, self.status, self.jobs, self.settings)

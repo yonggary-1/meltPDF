@@ -20,20 +20,25 @@ import pdf_core
 _lock = threading.Lock()
 
 
-def load_damaged_item(label: str, data: Optional[bytes] = None, path: Optional[str] = None) -> pdf_core.PageItem:
-    """data(메모리) 또는 path(파일)의 손상된 이미지를 읽을 수 있는 부분까지만 읽어 PageItem으로 만든다. 못 읽으면 예외."""
+def open_tolerant(data: Optional[bytes] = None, path: Optional[str] = None) -> Image.Image:
+    """손상된 이미지를 읽을 수 있는 부분까지 디코딩해 PIL 이미지로 돌려준다(EXIF 회전 반영). 못 읽으면 예외."""
     with _lock:                              # Pillow의 전역 설정을 잠깐만 바꾼다(다른 이미지에 영향이 가지 않게)
         ImageFile.LOAD_TRUNCATED_IMAGES = True
         try:
             with Image.open(io.BytesIO(data) if data is not None else path) as im:
                 im.load()
-                im = ImageOps.exif_transpose(im)
-                if im.mode not in ("1", "L", "LA", "RGB", "RGBA", "P"):
-                    im = im.convert("RGB")
-                buf = io.BytesIO()
-                im.save(buf, format="PNG")
+                return ImageOps.exif_transpose(im)
         finally:
             ImageFile.LOAD_TRUNCATED_IMAGES = False
+
+
+def load_damaged_item(label: str, data: Optional[bytes] = None, path: Optional[str] = None) -> pdf_core.PageItem:
+    """data(메모리) 또는 path(파일)의 손상된 이미지를 읽을 수 있는 부분까지만 읽어 PageItem으로 만든다. 못 읽으면 예외."""
+    im = open_tolerant(data, path)
+    if im.mode not in ("1", "L", "LA", "RGB", "RGBA", "P"):
+        im = im.convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
     item = pdf_core.load_image_item_from_bytes(buf.getvalue(), label)
     item.label = label
     return item
