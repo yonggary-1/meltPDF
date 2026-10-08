@@ -138,16 +138,10 @@ def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
             raise BookError("이미지 전체 크기가 너무 큽니다(16GB 초과).")
         warnings: List[str] = []
         missing = _missing_names(infos, images)
-        damaged = _damaged_names(infos, images) if tool_warning else set()
-        if damaged:
-            shown = ", ".join(sorted(damaged)[:10]) + (f" 외 {len(damaged) - 10}개" if len(damaged) > 10 else "")
-            warnings.append(f"손상된 이미지 {len(damaged)}개: {shown} (읽을 수 있는 부분만 표시합니다)")
-        if tool_warning or missing:
-            if missing:
-                shown = ", ".join(missing[:10]) + (f" 외 {len(missing) - 10}개" if len(missing) > 10 else "")
-                warnings.append(f"손상되어 풀리지 않은 이미지 {len(missing)}개는 목록에서 빠졌습니다: {shown}")
-            if tool_warning:
-                warnings.append(tool_warning)
+        damaged = _damaged_names(infos, images) if tool_warning else set()   # 풀리긴 했지만 체크섬이 맞지 않는 이미지(타일에 빨간 테두리)
+        if missing:
+            warnings.append(f"압축 파일에서 풀리지 않아 목록에서 뺀 이미지 {len(missing)}개: " + ", ".join(missing[:10])
+                            + (f" 외 {len(missing) - 10}개" if len(missing) > 10 else ""))
         results = ExtractResult(warnings=warnings)
         for rel, full in images:
             if os.path.getsize(full) > MAX_ENTRY_BYTES:

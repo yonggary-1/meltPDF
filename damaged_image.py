@@ -13,7 +13,7 @@ import io
 import threading
 from typing import Optional
 
-from PIL import Image, ImageFile, ImageOps
+from PIL import Image, ImageFile, ImageOps, UnidentifiedImageError
 
 import pdf_core
 
@@ -37,3 +37,10 @@ def load_damaged_item(label: str, data: Optional[bytes] = None, path: Optional[s
     item = pdf_core.load_image_item_from_bytes(buf.getvalue(), label)
     item.label = label
     return item
+
+
+def unreadable_reason(exc: Exception) -> str:
+    """읽지 못한 이미지에 붙일 설명(사용자에게 보이는 글). Pillow의 영어 오류 문구를 그대로 보여주지 않는다."""
+    if isinstance(exc, UnidentifiedImageError):
+        return "손상되어 읽지 못했습니다(이미지 머리 부분이 깨졌거나 이미지 파일이 아닙니다). 목록에서 뺐습니다."
+    return "손상되어 읽지 못했습니다. 목록에서 뺐습니다."

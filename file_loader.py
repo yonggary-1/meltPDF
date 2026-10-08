@@ -9,10 +9,13 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+import damaged_image
+import load_report
 import pdf_core
 from config import APP_TITLE, DND_FILES, HAS_DND
 from doc_model import DocModel
 from load_queue import LoadQueue
+from load_report import LoadResult
 from status_bar import StatusBar
 
 
@@ -100,20 +103,25 @@ class FileLoader:
         self.status.set(f"이미지 {len(paths)}개 불러오는 중...")
 
         def work():
-            loaded = []
-            errors = []
+            result = LoadResult()
             for p in paths:
                 try:
-                    loaded.append(pdf_core.load_image_item(p))
+                    result.items.append(pdf_core.load_image_item(p))
                 except Exception as e:
-                    errors.append(f"{Path(p).name}: {e}")
-            return loaded, errors
+                    # 정상으로는 못 읽는 이미지(잘렸거나 일부가 깨짐): 읽을 수 있는 부분만이라도 불러온다
+                    try:
+                        bad = damaged_image.load_damaged_item(Path(p).name, path=p)
+                        bad.damaged = True
+                        result.items.append(bad)
+                        result.damaged.append(Path(p).name)
+                    except Exception:
+                        result.errors.append(f"{Path(p).name}: {damaged_image.unreadable_reason(e)}")
+            return result
 
         def done(result, error):
-            loaded, errors = result if result else ([], [str(error)])
-            self.model.add(loaded)
-            if errors:
-                messagebox.showwarning(APP_TITLE, "일부 파일을 불러오지 못했습니다:\n" + "\n".join(errors))
+            result = result if result else LoadResult(errors=[str(error)])
+            self.model.add(result.items)
+            load_report.show(result)
 
         self.jobs.submit(work, done)
 

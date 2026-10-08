@@ -18,7 +18,8 @@ import book_import
 import pdf_core
 import storage_policy
 import damaged_image
-from PIL import UnidentifiedImageError
+import load_report
+from load_report import LoadResult
 from book_common import BookError
 from config import APP_TITLE
 from doc_model import DocModel
@@ -81,7 +82,7 @@ class BookLoader:
             f"('아니요'를 누르면 이 파일은 불러오지 않습니다. 설정에서 기본 동작을 바꿀 수 있습니다.)")
 
     # ---------------------------------------------------------- 백그라운드 처리 (일꾼 스레드)
-    def _extract(self, path: str, name: str, to_ram: bool) -> Tuple[List[pdf_core.PageItem], List[str]]:
+    def _extract(self, path: str, name: str, to_ram: bool) -> LoadResult:
         items: List[pdf_core.PageItem] = []
         errors: List[str] = []
         try:
@@ -93,8 +94,7 @@ class BookLoader:
             extracted = book_import.extract_images(path, progress, to_ram)
             if not extracted:
                 errors.append(f"{name}: 이미지가 들어 있지 않습니다.")
-            for w in getattr(extracted, "warnings", ()):
-                errors.append(f"{name}: {w}")
+            errors.extend(getattr(extracted, "warnings", ()))   # 목록에 못 넣고 뺀 것에 대한 설명(손상된 이미지 안내는 아래에서 따로)
             for n, ex in enumerate(extracted, start=1):
                 try:
                     item = self._load_one(ex)
@@ -107,19 +107,15 @@ class BookLoader:
                         bad = damaged_image.load_damaged_item(ex.label, data=ex.data, path=ex.path)
                         bad.damaged = True
                         items.append(bad)
-                        if not ex.damaged:         # 압축 파일이 이미 손상된 이미지라고 알렸으면 같은 말을 되풀이하지 않는다
-                            errors.append(f"{name} / {ex.label}: 손상된 이미지입니다. 읽을 수 있는 부분만 표시합니다.")
                     except Exception:
-                        why = ("이미지 머리 부분이 깨졌거나 이미지 파일이 아닙니다"
-                               if isinstance(e, UnidentifiedImageError) else str(e))
-                        errors.append(f"{name} / {ex.label}: 손상되어 읽지 못했습니다 ({why}) - 목록에서 뺐습니다.")
+                        errors.append(f"{ex.label}: {damaged_image.unreadable_reason(e)}")
                     ex.data = None
                 if n % 5 == 0:
                     self.root.after(0, lambda n=n, t=len(extracted): self.status.set(
                         f"{name} 썸네일 만드는 중... {n}/{t}"))
         except BookError as e:
             errors.append(f"{name}: {e}")
-        return items, errors
+        return LoadResult(items, errors, [it.label for it in items if it.damaged], name)
 
     @staticmethod
     def _load_one(ex) -> pdf_core.PageItem:
@@ -133,11 +129,9 @@ class BookLoader:
     # ---------------------------------------------------------- 결과 처리 (화면 스레드)
     def _finish_one(self, result, error, reserved_ram: int = 0):
         self._pending_ram = max(0, self._pending_ram - reserved_ram)
-        items, errors = result if result else ([], [f"예상치 못한 오류: {error}"])
-        self.model.add(items)            # 완료 시 화면과 상태 표시줄이 모델 알림으로 갱신된다
-        if errors:
-            messagebox.showwarning(APP_TITLE, "일부를 불러오지 못했습니다:\n" + "\n".join(errors[:20])
-                                   + (f"\n... 외 {len(errors) - 20}건" if len(errors) > 20 else ""))
+        result = result if result else LoadResult(errors=[f"예상치 못한 오류: {error}"])
+        self.model.add(result.items)     # 완료 시 화면과 상태 표시줄이 모델 알림으로 갱신된다
+        load_report.show(result)
 
 
 def _fmt_size(n: int) -> str:

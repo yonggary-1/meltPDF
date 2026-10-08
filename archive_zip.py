@@ -115,7 +115,7 @@ def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
                 except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError):
                     src = None                                  # 항목 머리가 깨져 열 수도 없음
                 if src is None:
-                    results.warnings.append(f"손상되어 읽지 못한 이미지는 목록에서 뺐습니다: {name}")
+                    results.warnings.append(f"{name}: 손상되어 읽지 못했습니다. 목록에서 뺐습니다.")
                 else:
                     with src:
                         if to_ram:
@@ -133,9 +133,7 @@ def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
                             if keep:
                                 results.append(ExtractedImage(label=name, path=out_path, damaged=not ok))
                     if not keep:
-                        results.warnings.append(f"손상되어 읽지 못한 이미지는 목록에서 뺐습니다: {name}")
-                    elif not ok:
-                        results.warnings.append(f"손상된 이미지: {name} (읽을 수 있는 부분만 표시합니다)")
+                        results.warnings.append(f"{name}: 손상되어 읽지 못했습니다. 목록에서 뺐습니다.")
             except OSError as e:
                 raise BookError(f"'{name}'을(를) 읽지 못했습니다: {e}")
             on_progress(done, total)
