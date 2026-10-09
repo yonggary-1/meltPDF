@@ -50,6 +50,9 @@ def _copy_limited(src, dst, name: str, expected_crc: int = None) -> bool:
     return expected_crc is None or (crc & 0xFFFFFFFF) == (expected_crc & 0xFFFFFFFF)
 
 
+copy_limited = _copy_limited      # 다른 책 형식(epub 등)이 같은 방식으로 꺼낼 때 쓴다
+
+
 def _open_archive(path: str):
     """zip을 연다. 목차가 잘려 zipfile로 안 열리면 앞에서부터 훑어 복구해 연다. (객체, 복구했는가)를 돌려준다."""
     try:

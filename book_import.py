@@ -7,14 +7,17 @@
 from __future__ import annotations
 
 import os
+import zipfile
 from typing import Callable, List, Optional
 
 import archive_rar
 import archive_zip
+import book_epub
+import book_fb2
 from book_common import BookError, ExtractedImage, ProgressFn, noop_progress
 
 # 사용자가 고를 수 있는 확장자(파일 선택 창 필터와 드래그앤드롭 판정에 쓴다)
-SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr")
+SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".epub", ".fb2")
 
 
 def is_supported(path: str) -> bool:
@@ -28,20 +31,47 @@ def _sniff(path: str) -> Optional[str]:
     except OSError as e:
         raise BookError(f"파일을 열 수 없습니다: {e}")
     if head[:4] in (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"):
-        return "zip"
+        return _sniff_zip(path)
     if head[:7] == b"Rar!\x1a\x07\x00" or head[:8] == b"Rar!\x1a\x07\x01\x00":   # RAR 4 / RAR 5
         return "rar"
+    if _is_fb2_text(path):
+        return "fb2"
     return None
+
+
+def _sniff_zip(path: str) -> str:
+    """zip 계열을 가른다: epub(META-INF/container.xml이 있음) / fb2.zip(.fb2 파일 하나) / 그 밖의 zip."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            if book_epub.is_epub(zf):
+                return "epub"
+            if book_fb2.zip_fb2_name(zf) is not None:
+                return "fb2"
+    except (zipfile.BadZipFile, OSError):
+        pass                                    # 목차가 잘린 zip 등: 일반 zip 읽기(복구 포함)에 맡긴다
+    return "zip"
+
+
+def _is_fb2_text(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return book_fb2.looks_like_fb2(f.read(8192))
+    except OSError:
+        return False
 
 
 # 포맷별 읽기 함수: reader(path, on_progress, to_ram) / 꺼낼 이미지 크기 추정 함수: estimator(path)
 READERS: dict[str, Callable[[str, ProgressFn, bool], List[ExtractedImage]]] = {
     "zip": archive_zip.extract_zip,
     "rar": archive_rar.extract_rar,
+    "epub": book_epub.extract_epub,
+    "fb2": book_fb2.extract_fb2,
 }
 ESTIMATORS: dict[str, Callable[[str], int]] = {
     "zip": archive_zip.estimate_bytes,
     "rar": archive_rar.estimate_bytes,
+    "epub": book_epub.estimate_bytes,
+    "fb2": book_fb2.estimate_bytes,
 }
 
 

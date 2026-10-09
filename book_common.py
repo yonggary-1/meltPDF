@@ -51,3 +51,20 @@ def is_image_name(name: str) -> bool:
 
 def noop_progress(done: int, total: int) -> None:
     return None
+
+
+def parse_xml(data: bytes, what: str = "XML"):
+    """작은 XML(epub의 container/opf, fb2 머리 등)을 읽는다. 엔티티 선언(DOCTYPE 안의 ENTITY)이 있는 파일은 확장 공격
+    (billion laughs) 위험이 있어 거절한다. 읽을 수 없으면 BookError."""
+    import xml.etree.ElementTree as ET
+    if b"<!ENTITY" in data[:65536]:
+        raise BookError(f"{what}에 허용하지 않는 엔티티 선언이 있어 열지 않습니다.")
+    try:
+        return ET.fromstring(data)
+    except ET.ParseError as e:
+        raise BookError(f"{what}를 읽지 못했습니다: {e}")
+
+
+def local_name(tag: str) -> str:
+    """'{네임스페이스}이름' 형태의 XML 태그/속성 이름에서 이름만."""
+    return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
