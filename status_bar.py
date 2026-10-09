@@ -18,7 +18,9 @@ class StatusBar:
         self.frame = ttk.Frame(parent, padding=6)
         self.frame.pack(side=tk.BOTTOM, fill=tk.X)
         self.var = tk.StringVar(master=parent)
-        ttk.Label(self.frame, textvariable=self.var).pack(side=tk.LEFT)
+        # 문구는 윗줄에 혼자 둔다. 아랫줄(app_window가 이 프레임에 pack하는 버튼들과 메모리 미터)이 좁은 창에서 문구 때문에
+        # 밀려 잘리지 않게 하려는 것(한 줄에 같이 두면 760px에서 PDF로 내보내기 버튼이 보이지 않았다).
+        ttk.Label(self.frame, textvariable=self.var).pack(side=tk.TOP, anchor="w", fill=tk.X, pady=(0, 4))
 
         model.subscribe("structure", self.refresh)
         model.subscribe("order", self.refresh)

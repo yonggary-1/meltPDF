@@ -18,6 +18,7 @@ from pathlib import PurePosixPath
 from typing import List
 
 import name_codec
+import zip_recover
 from natural_sort import path_key
 from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 import temp_store
@@ -49,10 +50,24 @@ def _copy_limited(src, dst, name: str, expected_crc: int = None) -> bool:
     return expected_crc is None or (crc & 0xFFFFFFFF) == (expected_crc & 0xFFFFFFFF)
 
 
+def _open_archive(path: str):
+    """zip을 연다. 목차가 잘려 zipfile로 안 열리면 앞에서부터 훑어 복구해 연다. (객체, 복구했는가)를 돌려준다."""
+    try:
+        return zipfile.ZipFile(path), False
+    except zipfile.BadZipFile:
+        recovered = zip_recover.open_recovered(path)
+        if recovered is None:
+            raise BookError("zip 파일이 손상되었거나 zip 형식이 아닙니다.")
+        return recovered, True
+    except OSError as e:
+        raise BookError(f"파일을 열 수 없습니다: {e}")
+
+
 def estimate_bytes(path: str) -> int:
     """꺼낼 이미지들의 압축 해제 후 크기 합계(목차만 읽으므로 빠르다). 알 수 없으면 파일 크기."""
     try:
-        with zipfile.ZipFile(path) as zf:
+        zf, _ = _open_archive(path)
+        with zf:
             infos = zf.infolist()
             return sum(i.file_size for i, n in zip(infos, name_codec.decode_zip_names(infos))
                        if not i.is_dir() and is_image_name(n))
@@ -65,12 +80,7 @@ def estimate_bytes(path: str) -> int:
 
 def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
                 to_ram: bool = False) -> List[ExtractedImage]:
-    try:
-        zf = zipfile.ZipFile(path)
-    except zipfile.BadZipFile:
-        raise BookError("zip 파일이 손상되었거나 zip 형식이 아닙니다.")
-    except OSError as e:
-        raise BookError(f"파일을 열 수 없습니다: {e}")
+    zf, recovered = _open_archive(path)
 
     with zf:
         candidates = []
@@ -86,6 +96,9 @@ def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
             raise BookError("이미지 전체 크기가 너무 큽니다(16GB 초과).")
 
         results = ExtractResult()
+        if recovered:
+            results.notes.append(
+                "압축 파일의 끝부분(목차)이 손상되어 앞에서부터 읽어 복구했습니다. 끝이 잘렸다면 뒤쪽 파일이 빠져 있을 수 있습니다.")
         total = len(candidates)
         for done, (info, name) in enumerate(candidates, start=1):
             if info.file_size > MAX_ENTRY_BYTES:

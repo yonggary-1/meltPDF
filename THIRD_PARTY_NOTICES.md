@@ -39,4 +39,4 @@ meltPDF는 아래 소프트웨어를 사용합니다. 각 라이선스와 출처
 - exe를 다른 사람에게 배포할 때는 소스 저장소 위치를 함께 알려야 합니다(AGPL). 개인적으로 쓰기만 할 때는 해당 없음.
 - PyMuPDF를 쓰지 않거나 Artifex 상용 라이선스를 사면 다른 라이선스를 고를 수 있습니다.
 - 법률 자문이 아니라 각 라이선스 조건을 읽고 정리한 것입니다. 배포 범위가 넓어지면 전문가 검토를 권합니다.
-- **`LICENSE` 파일**은 공식 원문(GNU AGPL v3)이어야 합니다. 이 작업 환경에서는 원문 사이트(gnu.org)에 접속할 수 없어 받지 못했고 임의로 작성하지 않았습니다. GitHub 저장소 화면의 "Add file → Create new file → 파일 이름에 `LICENSE` 입력 → Choose a license template → GNU Affero General Public License v3.0"로 추가하세요.
+- **`LICENSE` 파일**(v0.10.1): GNU AGPL v3 공식 원문. 두 곳의 공개 자료(GitHub의 `github/choosealicense.com` 저장소의 AGPL-3.0 템플릿과 `spdx/license-list-data`의 AGPL-3.0-or-later 텍스트)를 내려받아 공백을 무시하고 대조했고, 차이는 FSF 주소가 `http`와 `https`로 다른 세 군데뿐이어서 최신 표기(https)인 앞의 것을 썼습니다. 줄 모양은 원문 그대로입니다.

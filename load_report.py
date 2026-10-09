@@ -4,6 +4,7 @@
 알림은 두 종류를 나눈다.
 - 손상된 이미지: 읽을 수 있는 부분만 목록에 넣은 정상 동작이다. 오류가 아니므로 "손상된 이미지 N개가 있습니다"라는 안내(정보 창)로 알린다.
 - 불러오지 못한 것: 목록에 넣지 못한 파일. 이것만 경고 창으로 알린다.
+- 참고 안내(notes): 오류가 아닌 알림(예: 끝이 잘린 zip을 복구해 읽음). 정보 창.
 둘 다 있으면 한 창에 차례로 보여준다.
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ class LoadResult:
     errors: List[str] = field(default_factory=list)
     damaged: List[str] = field(default_factory=list)
     source: str = ""
+    notes: List[str] = field(default_factory=list)      # 참고 안내(오류 아님) - 정보 창으로 알린다
 
 
 def _lines(names: List[str]) -> str:
@@ -40,6 +42,8 @@ def build_message(result: LoadResult) -> str:
         where = f" ({result.source})" if result.source else ""
         parts.append(f"손상된 이미지 {len(result.damaged)}개가 있습니다{where}.\n"
                      "읽을 수 있는 부분만 표시하며, 빨간 테두리로 구분됩니다.\n" + _lines(result.damaged))
+    for note in result.notes:
+        parts.append(note)
     return "\n\n".join(parts)
 
 

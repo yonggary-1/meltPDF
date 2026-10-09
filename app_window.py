@@ -19,6 +19,7 @@ from image_viewer import ImageViewer
 from key_nav import KeyNav
 from load_queue import LoadQueue
 from page_actions import PageActions
+from ram_meter import RamMeter
 from rename_pages import RenamePages
 from selection import Selection
 from settings import Settings
@@ -70,6 +71,7 @@ class App:
             hint = "[드래그앤드롭 비활성 - tkinterdnd2 미설치] 위 버튼으로 이미지/폴더/PDF를 추가하세요. (썸네일을 눌러서 끌면 순서를 바꿀 수 있습니다)"
         label = ttk.Label(self.root, text=hint, padding=(8, 4))
         label.pack(side=tk.TOP, fill=tk.X)
+        label.bind("<Configure>", lambda e: label.configure(wraplength=max(200, e.width - 16)))   # 좁은 창에서 안내문이 잘리지 않고 줄바꿈되게
         return label
 
     def _fill_toolbar(self):
@@ -107,9 +109,12 @@ class App:
         bar = self.status.frame
         # 삭제 버튼들은 실수로 누르기 쉬운 파괴적 동작이라 툴바가 아니라 하단바에 따로 모아둔다.
         danger = ttk.Frame(bar)
-        danger.pack(side=tk.LEFT, padx=(16, 0))
+        danger.pack(side=tk.LEFT)
         ttk.Button(danger, text="선택 삭제", command=self.actions.delete_selected).pack(side=tk.LEFT)
         ttk.Button(danger, text="전체 삭제", command=self.actions.delete_all).pack(
             side=tk.LEFT, padx=(4, 0))
+        # pack을 RIGHT로 하면 먼저 둔 것이 맨 오른쪽: 메모리 미터, PDF로 내보내기, 이미지 내보내기 순
+        self.ram_meter = RamMeter(bar)
+        self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0))
         self.exporter.make_button(bar).pack(side=tk.RIGHT)
         self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))

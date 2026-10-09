@@ -85,6 +85,7 @@ class BookLoader:
     def _extract(self, path: str, name: str, to_ram: bool) -> LoadResult:
         items: List[pdf_core.PageItem] = []
         errors: List[str] = []
+        notes: List[str] = []
         try:
             def progress(done: int, total: int):
                 if done == total or done % 5 == 0:
@@ -94,6 +95,7 @@ class BookLoader:
             extracted = book_import.extract_images(path, progress, to_ram)
             if not extracted:
                 errors.append(f"{name}: 이미지가 들어 있지 않습니다.")
+            notes.extend(getattr(extracted, "notes", ()))      # 참고 안내(예: 끝이 잘린 zip을 복구해 읽음)
             errors.extend(getattr(extracted, "warnings", ()))   # 목록에 못 넣고 뺀 것에 대한 설명(손상된 이미지 안내는 아래에서 따로)
             for n, ex in enumerate(extracted, start=1):
                 try:
@@ -115,7 +117,7 @@ class BookLoader:
                         f"{name} 썸네일 만드는 중... {n}/{t}"))
         except BookError as e:
             errors.append(f"{name}: {e}")
-        return LoadResult(items, errors, [it.label for it in items if it.damaged], name)
+        return LoadResult(items, errors, [it.label for it in items if it.damaged], name, notes)
 
     @staticmethod
     def _load_one(ex) -> pdf_core.PageItem:

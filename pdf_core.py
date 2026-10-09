@@ -13,6 +13,9 @@ GUI(tkinter)와 분리해서 독립적으로 테스트 가능하도록 작성.
 from __future__ import annotations
 
 import io
+import os
+import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -171,6 +174,21 @@ def _export_source(item: PageItem) -> Union[str, bytes]:
     return item.source_path  # type: ignore[return-value]
 
 
+# 이미지 페이지를 PDF로 바꿀 때 한 번에 묶는 양. 묶음마다 임시 파일 하나로 만들고 그 파일을 열어 쓰므로,
+# 메모리에는 한 묶음(최대 이 크기)만 올라가고 나머지는 디스크에서 필요할 때 읽는다(책 전체가 메모리에 한꺼번에 올라가지 않음).
+CHUNK_MAX_BYTES = 96 * 1024 * 1024
+CHUNK_MAX_PAGES = 200
+
+
+def _source_size(source: Union[str, bytes]) -> int:
+    if isinstance(source, bytes):
+        return len(source)
+    try:
+        return os.path.getsize(source)
+    except OSError:
+        return 0
+
+
 def export_pdf(
     items: List[PageItem],
     output_path: Union[str, Path],
@@ -181,6 +199,11 @@ def export_pdf(
     - kind='image' 항목: 무용지(페이지 크기 = 이미지 픽셀 크기) 페이지로 새로 변환.
     - kind='pdf_page' 항목: 원본 PDF의 그 페이지 객체를 pikepdf로 그대로 복사(재인코딩/래스터화
       없음 - 원본과 100% 동일한 내용으로 들어감). 순서 변경이나 페이지 삭제만 반영된다.
+
+    메모리: 이미지 페이지는 연속된 것끼리 묶어서(CHUNK_*) 임시 파일 PDF로 만든 뒤 그 페이지들을 결과에 옮긴다. 페이지마다 PDF 바이트를
+    통째로 메모리에 쥐고 있던 이전 방식은 이미지 총량의 약 2배를 썼고, 이 방식은 약 1배(= 결과 PDF 크기)를 쓴다(측정은 CHANGELOG).
+    1배 아래로는 못 내린다: pikepdf가 페이지를 다른 PDF로 옮길 때 이미지 데이터를 메모리로 복사하고(파일을 mmap으로 열어도 같음을
+    확인함), img2pdf도 만드는 동안 이미지를 메모리에 둔다. 결과 PDF는 이전과 같다(img2pdf가 페이지마다 같은 규칙으로 만든다).
     """
     if not items:
         raise ValueError("내보낼 페이지가 없습니다.")
@@ -195,10 +218,30 @@ def export_pdf(
     output = pikepdf.Pdf.new()
     open_handles: List[pikepdf.Pdf] = []   # output.save()가 끝날 때까지 원본/임시 Pdf를 열어둬야 함
     src_cache: dict[str, pikepdf.Pdf] = {}  # 같은 원본 PDF에서 여러 페이지를 가져올 때 재사용
+    tmp_dir = tempfile.mkdtemp(prefix="meltpdf_")
+    chunk_no = 0
+
+    def flush(pending: List[Union[str, bytes]]):
+        """모인 이미지들을 임시 PDF 파일 하나로 만들어 그 페이지들을 output에 이어 붙인다."""
+        nonlocal chunk_no
+        if not pending:
+            return
+        chunk_no += 1
+        tmp_path = os.path.join(tmp_dir, f"chunk{chunk_no}.pdf")
+        with open(tmp_path, "wb") as f:
+            img2pdf.convert(pending, outputstream=f)
+        tmp_pdf = pikepdf.open(tmp_path)
+        open_handles.append(tmp_pdf)
+        output.pages.extend(tmp_pdf.pages)
+        pending.clear()
 
     try:
+        pending: List[Union[str, bytes]] = []
+        pending_bytes = 0
         for item in ordered:
             if item.kind == "pdf_page":
+                flush(pending)
+                pending_bytes = 0
                 src_pdf = src_cache.get(item.origin_pdf)
                 if src_pdf is None:
                     src_pdf = pikepdf.open(item.origin_pdf)
@@ -207,10 +250,13 @@ def export_pdf(
                 output.pages.append(src_pdf.pages[item.origin_page_no - 1])
             else:
                 source = _export_source(item)
-                page_pdf_bytes = img2pdf.convert([source])
-                tmp_pdf = pikepdf.open(io.BytesIO(page_pdf_bytes))
-                open_handles.append(tmp_pdf)
-                output.pages.append(tmp_pdf.pages[0])
+                size = _source_size(source)
+                if pending and (pending_bytes + size > CHUNK_MAX_BYTES or len(pending) >= CHUNK_MAX_PAGES):
+                    flush(pending)
+                    pending_bytes = 0
+                pending.append(source)
+                pending_bytes += size
+        flush(pending)
 
         output.save(output_path)
     finally:
@@ -220,3 +266,4 @@ def export_pdf(
                 h.close()
             except Exception:
                 pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)    # 열린 파일을 모두 닫은 뒤에 지운다(윈도우는 열린 파일을 지울 수 없다)
