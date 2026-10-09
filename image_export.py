@@ -8,11 +8,14 @@
 - 내용은 재인코딩하지 않고 목록이 들고 있는 바이트를 그대로 쓴다. 단, 두 경우는 원본 파일이 아니라 목록에 담긴 PNG가 저장된다:
   (1) EXIF 회전 정보가 있어 회전을 반영해 담은 이미지, (2) 손상되어 읽을 수 있는 부분만 담은 이미지.
   이때 확장자는 실제 내용에 맞게 .png로 바뀐다(확장자는 파일 앞부분을 보고 정한다).
-- PDF에서 가져온 페이지는 이미지 파일이 아니므로 건너뛴다(PDF 추출 기능은 나중에 따로).
+- PDF에서 가져온 쪽(pdf_page)은 그 쪽 안에 든 원본 이미지를 꺼내 저장한다(pdf_images.py). 파일 이름은 "<PDF 이름> - p003.jpg"
+  (쪽 번호), 한 쪽에 이미지가 여러 장이면 "... - p003_1.jpg", "_2". 이미지가 없는 쪽(글자만 있는 쪽 등)과 이미 저장한 이미지만 있는 쪽은
+  건너뛰고 개수를 알린다.
 """
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -20,6 +23,7 @@ from typing import Callable, List, Optional, Tuple
 
 import name_codec
 import pdf_core
+import pdf_images
 
 # 파일 앞부분으로 알아낸 형식 -> 확장자와, 같은 형식으로 인정할 확장자들
 _FORMAT_EXT = {
@@ -72,8 +76,10 @@ def _filename_for(item: pdf_core.PageItem) -> str:
 
 @dataclass
 class Entry:
-    item: pdf_core.PageItem
+    item: Optional[pdf_core.PageItem]                 # 이미지 항목(PDF 쪽에서 꺼내는 이미지는 None)
     filename: str
+    pdf_ref: Optional[Tuple[str, int]] = None         # (PDF 경로, 이미지 xref) - PDF 안에서 꺼내는 이미지
+    label: str = ""                                    # 겹침 안내에 보여줄 이름
 
 
 @dataclass
@@ -81,24 +87,76 @@ class ExportPlan:
     dest_dir: str                                    # 만들 폴더(아직 없음)
     entries: List[Entry] = field(default_factory=list)
     renamed: List[Tuple[str, str]] = field(default_factory=list)   # (목록에 보이던 이름, 저장할 이름) - 겹쳐서 바뀐 것만
-    skipped_pdf_pages: int = 0
+    skipped_pdf_pages: int = 0                       # 꺼낼 이미지가 없거나 이미 저장한 이미지뿐이라 건너뛴 PDF 쪽
+    notes: List[str] = field(default_factory=list)  # 사용자에게 알릴 사유(열 수 없는 PDF 등)
+
+
+_DEFAULT_PDF_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)$", re.IGNORECASE)
+
+
+def _pdf_page_base(item: pdf_core.PageItem, page_count: int) -> str:
+    """PDF 쪽에서 꺼낸 이미지 파일 이름의 앞부분. 기본 이름이면 "<PDF 이름> - p003", 파일명 변경으로 바뀐 이름이면 그것."""
+    m = _DEFAULT_PDF_LABEL.match(item.label.strip())
+    if m:
+        return f"{m.group(1)} - p{int(m.group(2)):0{max(3, len(str(page_count)))}d}"
+    return item.label.strip()
 
 
 def build_plan(items: List[pdf_core.PageItem], parent_dir: str, folder_name: str) -> ExportPlan:
-    """items(내보낼 순서)를 parent_dir 안의 새 폴더에 풀 계획을 만든다. 디스크에는 아무것도 만들지 않는다."""
+    """items(내보낼 순서)를 parent_dir 안의 새 폴더에 풀 계획을 만든다. 디스크에는 아무것도 만들지 않는다(PDF는 읽기만 한다)."""
     dest = name_codec.unique_dir(parent_dir, name_codec.safe_name(folder_name or "images", fallback="images"))
     plan = ExportPlan(dest_dir=dest)
     taken: set = set()
-    for item in items:
-        if item.kind != "image":
-            plan.skipped_pdf_pages += 1
-            continue
-        wanted = _filename_for(item)
+    docs: dict = {}                    # PDF 경로 -> 열린 문서(또는 열 수 없어 None)
+    seen_xrefs: set = set()            # (PDF 경로, xref) - 이미 꺼내기로 한 이미지
+    bad_pdfs: set = set()
+    try:
+        for item in items:
+            if item.kind == "image":
+                wanted = _filename_for(item)
+                final = name_codec.unique_name(wanted, taken)
+                if final != wanted:
+                    plan.renamed.append((item.label, final))
+                plan.entries.append(Entry(item, final, label=item.label))
+                continue
+            _plan_pdf_page(plan, item, docs, seen_xrefs, bad_pdfs, taken)
+    finally:
+        for doc in docs.values():
+            if doc is not None:
+                doc.close()
+    return plan
+
+
+def _plan_pdf_page(plan, item, docs, seen_xrefs, bad_pdfs, taken) -> None:
+    path = item.origin_pdf
+    if path not in docs:
+        try:
+            docs[path] = pdf_images.open_pdf(path)
+        except pdf_images.PdfImageError as e:
+            docs[path] = None
+            plan.notes.append(f"{os.path.basename(path)}: {e}")
+    doc = docs[path]
+    if doc is None:
+        plan.skipped_pdf_pages += 1
+        return
+    try:
+        xrefs = [x for x in pdf_images.page_xrefs(doc[item.origin_page_no - 1]) if (path, x) not in seen_xrefs]
+    except Exception as e:
+        plan.notes.append(f"{item.label}: 이미지 목록을 읽지 못했습니다({e}).")
+        plan.skipped_pdf_pages += 1
+        return
+    if not xrefs:
+        plan.skipped_pdf_pages += 1
+        return
+    base = _pdf_page_base(item, doc.page_count)
+    for k, xref in enumerate(xrefs, start=1):
+        seen_xrefs.add((path, xref))
+        stem = name_codec.safe_name(base + (f"_{k}" if len(xrefs) > 1 else ""), fallback="image")
+        wanted = stem + pdf_images.ext_hint(doc, xref)
         final = name_codec.unique_name(wanted, taken)
         if final != wanted:
-            plan.renamed.append((item.label, final))
-        plan.entries.append(Entry(item, final))
-    return plan
+            plan.renamed.append((wanted, final))
+        plan.entries.append(Entry(None, final, pdf_ref=(path, xref), label=wanted))
 
 
 def write_plan(plan: ExportPlan, on_progress: Callable[[int, int], None] = lambda d, t: None) -> Tuple[int, List[str]]:
@@ -106,17 +164,42 @@ def write_plan(plan: ExportPlan, on_progress: Callable[[int, int], None] = lambd
     os.makedirs(plan.dest_dir, exist_ok=False)
     written, errors = 0, []
     total = len(plan.entries)
-    for done, entry in enumerate(plan.entries, start=1):
-        out = os.path.join(plan.dest_dir, entry.filename)
-        try:
-            item = entry.item
-            if item.raster_bytes is not None:
-                with open(out, "wb") as f:
-                    f.write(item.raster_bytes)
-            else:
-                shutil.copyfile(item.source_path, out)
-            written += 1
-        except OSError as e:
-            errors.append(f"{entry.filename}: {e}")
-        on_progress(done, total)
+    docs: dict = {}
+    taken = {e.filename.lower() for e in plan.entries}
+    try:
+        for done, entry in enumerate(plan.entries, start=1):
+            filename = entry.filename
+            try:
+                if entry.pdf_ref is not None:
+                    path, xref = entry.pdf_ref
+                    if path not in docs:
+                        docs[path] = pdf_images.open_pdf(path)
+                    got = pdf_images.read_image(docs[path], xref)
+                    if got is None:
+                        errors.append(f"{entry.filename}: 꺼낼 수 없는 이미지 형식입니다.")
+                        on_progress(done, total)
+                        continue
+                    data, ext = got
+                    stem, old_ext = os.path.splitext(filename)
+                    if ext != old_ext.lower():                   # 미리 짐작한 확장자와 실제가 다르면 실제에 맞춘다
+                        taken.discard(filename.lower())
+                        filename = name_codec.unique_name(stem + ext, taken)
+                        taken.add(filename.lower())
+                    with open(os.path.join(plan.dest_dir, filename), "wb") as f:
+                        f.write(data)
+                else:
+                    item = entry.item
+                    out = os.path.join(plan.dest_dir, filename)
+                    if item.raster_bytes is not None:
+                        with open(out, "wb") as f:
+                            f.write(item.raster_bytes)
+                    else:
+                        shutil.copyfile(item.source_path, out)
+                written += 1
+            except (OSError, pdf_images.PdfImageError) as e:
+                errors.append(f"{filename}: {e}")
+            on_progress(done, total)
+    finally:
+        for doc in docs.values():
+            doc.close()
     return written, errors

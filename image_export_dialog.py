@@ -102,7 +102,7 @@ class ImageExporter:
             messagebox.showerror(APP_TITLE, f"이미지 내보내기를 시작하지 못했습니다:\n{e}")
             return
         if not plan.entries:
-            messagebox.showinfo(APP_TITLE, "내보낼 이미지가 없습니다. (PDF 페이지는 이미지 파일이 아니라 저장하지 않습니다.)")
+            messagebox.showinfo(APP_TITLE, "내보낼 이미지가 없습니다." + ("\n" + "\n".join(plan.notes) if plan.notes else "") + ("\n(PDF 쪽 " + str(plan.skipped_pdf_pages) + "개에는 꺼낼 이미지가 없습니다.)" if plan.skipped_pdf_pages else ""))
             return
         if plan.renamed:
             messagebox.showinfo(APP_TITLE, self.rename_notice(plan.renamed))
@@ -145,7 +145,9 @@ class ImageExporter:
         written, errors = result
         text = f"이미지 {written}개를 저장했습니다:\n{plan.dest_dir}"
         if plan.skipped_pdf_pages:
-            text += f"\n\nPDF 페이지 {plan.skipped_pdf_pages}개는 이미지 파일이 아니라 저장하지 않았습니다."
+            text += f"\n\nPDF 쪽 {plan.skipped_pdf_pages}개는 꺼낼 이미지가 없거나(글자만 있는 쪽 등) 이미 저장한 이미지뿐이라 건너뛰었습니다."
+        if plan.notes:
+            text += "\n\n" + "\n".join(plan.notes)
         if errors:
             more = f"\n... 외 {len(errors) - _MAX_LINES}건" if len(errors) > _MAX_LINES else ""
             messagebox.showwarning(APP_TITLE, text + "\n\n저장하지 못한 파일:\n" + "\n".join(errors[:_MAX_LINES]) + more)
