@@ -14,10 +14,11 @@ import archive_rar
 import archive_zip
 import book_epub
 import book_fb2
+import book_mobi
 from book_common import BookError, ExtractedImage, ProgressFn, noop_progress
 
 # 사용자가 고를 수 있는 확장자(파일 선택 창 필터와 드래그앤드롭 판정에 쓴다)
-SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".epub", ".fb2")
+SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".epub", ".fb2", ".mobi", ".azw", ".azw3")
 
 
 def is_supported(path: str) -> bool:
@@ -34,6 +35,8 @@ def _sniff(path: str) -> Optional[str]:
         return _sniff_zip(path)
     if head[:7] == b"Rar!\x1a\x07\x00" or head[:8] == b"Rar!\x1a\x07\x01\x00":   # RAR 4 / RAR 5
         return "rar"
+    if _is_mobi(path):
+        return "mobi"
     if _is_fb2_text(path):
         return "fb2"
     return None
@@ -52,6 +55,14 @@ def _sniff_zip(path: str) -> str:
     return "zip"
 
 
+def _is_mobi(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return book_mobi.is_mobi_file(f.read(68))
+    except OSError:
+        return False
+
+
 def _is_fb2_text(path: str) -> bool:
     try:
         with open(path, "rb") as f:
@@ -66,12 +77,14 @@ READERS: dict[str, Callable[[str, ProgressFn, bool], List[ExtractedImage]]] = {
     "rar": archive_rar.extract_rar,
     "epub": book_epub.extract_epub,
     "fb2": book_fb2.extract_fb2,
+    "mobi": book_mobi.extract_mobi,
 }
 ESTIMATORS: dict[str, Callable[[str], int]] = {
     "zip": archive_zip.estimate_bytes,
     "rar": archive_rar.estimate_bytes,
     "epub": book_epub.estimate_bytes,
     "fb2": book_fb2.estimate_bytes,
+    "mobi": book_mobi.estimate_bytes,
 }
 
 
