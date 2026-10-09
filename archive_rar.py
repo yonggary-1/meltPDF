@@ -3,7 +3,8 @@ RAR / CBR 읽기 - 압축 파일 안의 이미지를 "파일 이름 순서"(자�
 
 - 목차(이름, 크기, 암호 여부)는 rarfile 라이브러리가 파이썬으로 직접 읽는다 - 외부 도구가 필요 없다.
 - 실제로 압축을 푸는 일은 rar_tool.py가 프로그램에 같이 들어 있는 공식 UnRAR(없으면 설치된 7-Zip 등)에
-  한 번에 맡긴다. 그래서 RAR는 메모리 방식이어도 풀리는 동안만 디스크 임시 폴더를 잠깐 쓰고, 끝나면 지운다.
+  한 번에 맡긴다. 메모리 방식이면 먼저 UnRAR의 `p`(표준 출력)로 디스크에 쓰지 않고 바로 메모리로 받아 보고(v0.10.2), 크기나
+  체크섬이 어긋나거나 도구가 실패하면 디스크 임시 폴더에 풀어서 읽는 기존 방식으로 되돌아간다(손상된 파일 처리도 그쪽이 맡는다).
 - 이미지는 재인코딩 없이 원본 바이트 그대로 꺼낸다. 암호 걸린 rar, 비정상적으로 큰 항목은 거절한다.
 """
 from __future__ import annotations
@@ -13,7 +14,7 @@ import shutil
 import tempfile
 import zlib
 from pathlib import PurePosixPath
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import rarfile
 
@@ -113,6 +114,67 @@ def _damaged_names(infos: list, images: List[Tuple[str, str]]) -> set:
     return bad
 
 
+def _read_exact(stream, n: int, keep: bool):
+    """stream에서 정확히 n바이트를 읽는다. keep이면 그 바이트를 돌려주고 아니면 버린다(빈 값 b"" 반환). 모자라면 None."""
+    parts = []
+    left = n
+    while left > 0:
+        chunk = stream.read(min(left, 8 * 1024 * 1024))
+        if not chunk:
+            return None
+        left -= len(chunk)
+        if keep:
+            parts.append(chunk)
+    return b"".join(parts) if keep else b""
+
+
+def _stream_images(path: str, file_infos: list, on_progress: ProgressFn) -> Optional[List[ExtractedImage]]:
+    """UnRAR의 `p`로 압축 안 파일 내용을 표준 출력으로 받아 이미지만 메모리에 담는다. 디스크에는 아무것도 쓰지 않는다.
+    출력은 목차(file_infos, 폴더 제외, 저장된 순서)의 크기대로 잘라 쓰고, 이미지는 CRC32까지 맞는지 확인한다.
+    UnRAR가 없거나, 종료 코드가 0이 아니거나, 크기/체크섬이 하나라도 어긋나면 None - 호출하는 쪽이 디스크 방식으로 되돌아간다."""
+    names = [i.filename.replace("\\", "/") for i in file_infos]
+    if any(i.is_symlink() for i in file_infos) or len(set(names)) != len(names):
+        return None                         # 링크나 같은 이름의 중복은 디스크 방식의 규칙을 따른다
+    for kind, exe in rar_tool.find_tools():
+        if kind != "unrar":
+            continue
+        try:
+            proc = rar_tool.open_stream(exe, path)
+        except OSError:
+            continue
+        results: List[ExtractedImage] = []
+        ok = True
+        try:
+            for done, (info, name) in enumerate(zip(file_infos, names), start=1):
+                keep = is_image_name(name)
+                data = _read_exact(proc.stdout, info.file_size, keep)
+                if data is None:
+                    ok = False
+                    break
+                if keep:
+                    crc = getattr(info, "CRC", None)
+                    if crc is not None and (zlib.crc32(data) & 0xFFFFFFFF) != (crc & 0xFFFFFFFF):
+                        ok = False
+                        break
+                    results.append(ExtractedImage(label=name, data=data))
+                on_progress(done, len(file_infos))
+            if ok and proc.stdout.read(1):  # 목차보다 더 많은 내용이 나옴 - 파일 대응이 어긋남
+                ok = False
+        finally:
+            try:
+                proc.stdout.close()
+                if not ok:
+                    proc.kill()
+                rc = proc.wait(timeout=60)
+            except Exception:
+                proc.kill()
+                rc = -1
+        if ok and rc == 0:
+            results.sort(key=lambda ex: path_key(ex.label))
+            return results
+    return None
+
+
 def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
                 to_ram: bool = False) -> List[ExtractedImage]:
     with _open(path) as rf:
@@ -128,6 +190,11 @@ def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
         return []
 
     total = len(rf.infolist())
+    if to_ram:                                  # 디스크 임시 폴더 없이 UnRAR의 표준 출력으로 바로 메모리에 받아 본다
+        streamed = _stream_images(path, [i for i in rf.infolist() if not i.is_dir()], on_progress)
+        if streamed is not None:
+            on_progress(total, total)
+            return ExtractResult(streamed)
     work = tempfile.mkdtemp(prefix="meltPDF_rar_")
     try:
         tool_warning = rar_tool.extract_all(path, work, lambda n: on_progress(min(n, total), total))

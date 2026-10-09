@@ -13,6 +13,10 @@ exe에 같이 넣어 두고(tools/UnRAR.exe - 출처와 라이선스는 tools/RE
 
 한 번에 전부 풀고 나서 이미지를 골라 쓰는 이유: 파일 하나씩 풀면 연속(solid) 압축에서는 앞의 파일들을
 매번 다시 풀어야 해서 극도로 느려진다.
+
+예외(메모리 방식, v0.10.2): UnRAR는 `p` 명령으로 파일 내용을 표준 출력에 차례로 내보낼 수 있다. 그러면 디스크에 아무것도
+쓰지 않고(임시 폴더 없음) 한 번의 실행으로 전부 받을 수 있어서, 메모리에 두기로 한 경우에는 open_stream으로 받는다(archive_rar가
+크기/체크섬으로 검증하고, 맞지 않으면 위의 디스크 방식으로 되돌아간다).
 """
 from __future__ import annotations
 
@@ -116,6 +120,13 @@ def _command(kind: str, exe: str, archive: str, dest: str) -> List[str]:
     if kind == "unar":
         return [exe, "-q", "-D", "-f", "-o", dest, archive]
     return [exe, "-xf", archive, "-C", dest]          # bsdtar
+
+
+def open_stream(exe: str, archive: str) -> subprocess.Popen:
+    """UnRAR의 `p` 명령으로 압축 안 파일들의 내용을 표준 출력으로 차례로(압축 파일에 저장된 순서, 폴더 항목 제외) 내보내게 한다.
+    출력에는 파일 경계가 없으므로 부르는 쪽이 목차의 크기로 잘라 쓴다. -inul: 메시지를 전혀 내지 않음(내용만 출력)."""
+    return subprocess.Popen([exe, "p", "-inul", "-p-", "-y", archive], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **_popen_flags())
 
 
 def _popen_flags() -> dict:
