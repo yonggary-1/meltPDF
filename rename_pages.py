@@ -11,23 +11,22 @@
 """
 from __future__ import annotations
 
-import re
 import tkinter as tk
 from pathlib import PurePosixPath
 from tkinter import messagebox, ttk
 from typing import Dict
 
+import name_codec
 import pdf_core
 from config import APP_TITLE
 from doc_model import DocModel
 
 MIN_DIGITS = 4
-_INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def clean_prefix(prefix: str) -> str:
     """파일 이름에 쓸 수 없는 글자를 _로 바꾸고, 윈도우에서 문제되는 끝의 공백/마침표를 없앤다."""
-    return _INVALID_CHARS.sub("_", prefix).strip().rstrip(". ")
+    return name_codec.clean_component(prefix)
 
 
 def build_names(model: DocModel, prefix: str) -> Dict[str, str]:

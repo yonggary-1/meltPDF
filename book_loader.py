@@ -67,7 +67,7 @@ class BookLoader:
         to_ram = choice == storage_policy.RAM
         if to_ram:
             self._pending_ram += estimate
-        self.model.note_source(Path(path).stem)
+        self.model.note_source(Path(path).stem, str(Path(path).parent))
         self.status.set(f"{name} 대기 중...")
         self.jobs.submit(lambda: self._extract(path, name, to_ram),
                          lambda result, error: self._finish_one(result, error, estimate if to_ram else 0))

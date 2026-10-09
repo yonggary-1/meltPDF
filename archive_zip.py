@@ -4,8 +4,8 @@ ZIP / CBZ 읽기 - 압축 파일 안의 이미지를 "파일 이름 순서"(자�
 - zip은 안의 파일에 의미 있는 순서가 없다(압축한 도구/시점에 따라 저장 순서가 제각각). 그래서
   저장 순서가 아니라 경로 이름 순으로 정렬한다 - 정렬 규칙은 natural_sort.py (2 < 10, 폴더 단위 비교).
 - 이미지는 재인코딩 없이 원본 바이트 그대로 꺼낸다(메모리 또는 디스크 임시 폴더 - 호출하는 쪽이 고른다).
-- 윈도우 한글 zip(이름이 cp949인데 UTF-8 표시가 없는 것)의 깨진 이름을 복원한다. 이름은 목록 표시용이고
-  순서와는 무관하다.
+- UTF-8 표시가 없는 zip(윈도우 한글/일본어/중국어판이 만든 것)의 깨진 이름은 name_codec.decode_zip_names로 복원한다.
+  이름은 목록 표시용이고 순서와는 무관하다.
 - 암호 걸린 zip, 비정상적으로 큰 항목(압축 폭탄)은 사유를 알려 주고 거절한다.
 """
 from __future__ import annotations
@@ -17,6 +17,7 @@ import zlib
 from pathlib import PurePosixPath
 from typing import List
 
+import name_codec
 from natural_sort import path_key
 from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 import temp_store
@@ -24,26 +25,6 @@ import temp_store
 MAX_ENTRY_BYTES = 1024 * 1024 * 1024        # 항목 하나 최대 1GB
 MAX_TOTAL_BYTES = 16 * 1024 * 1024 * 1024   # 이미지 전체 합계 최대 16GB
 _CHUNK = 1024 * 1024
-_NAME_ENCODINGS = ("utf-8", "cp949", "cp932", "gbk")
-
-
-def _entry_name(info: zipfile.ZipInfo) -> str:
-    """항목 이름을 사람이 읽을 수 있게 복원한다. 파이썬은 UTF-8 표시(0x800)가 없으면 cp437로
-    읽으므로, 그 경우 원래 바이트로 되돌려서 UTF-8 -> cp949 -> cp932 -> gbk 순으로 해석해 본다."""
-    name = info.filename
-    if not (info.flag_bits & 0x800):
-        try:
-            raw = name.encode("cp437")
-        except UnicodeEncodeError:
-            raw = None
-        if raw is not None:
-            for enc in _NAME_ENCODINGS:
-                try:
-                    name = raw.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-    return name.replace("\\", "/")
 
 
 def _copy_limited(src, dst, name: str, expected_crc: int = None) -> bool:
@@ -72,8 +53,9 @@ def estimate_bytes(path: str) -> int:
     """꺼낼 이미지들의 압축 해제 후 크기 합계(목차만 읽으므로 빠르다). 알 수 없으면 파일 크기."""
     try:
         with zipfile.ZipFile(path) as zf:
-            return sum(i.file_size for i in zf.infolist()
-                       if not i.is_dir() and is_image_name(_entry_name(i)))
+            infos = zf.infolist()
+            return sum(i.file_size for i, n in zip(infos, name_codec.decode_zip_names(infos))
+                       if not i.is_dir() and is_image_name(n))
     except Exception:
         try:
             return os.path.getsize(path)
@@ -92,8 +74,8 @@ def extract_zip(path: str, on_progress: ProgressFn = noop_progress,
 
     with zf:
         candidates = []
-        for info in zf.infolist():
-            name = _entry_name(info)
+        infos = zf.infolist()
+        for info, name in zip(infos, name_codec.decode_zip_names(infos)):
             if not info.is_dir() and is_image_name(name):
                 candidates.append((info, name))
         candidates.sort(key=lambda pair: path_key(pair[1]))   # 이름 순(자연 정렬)

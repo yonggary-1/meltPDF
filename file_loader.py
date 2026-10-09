@@ -36,7 +36,7 @@ class FileLoader:
             filetypes=[("이미지 파일", " ".join(f"*{e}" for e in sorted(pdf_core.IMAGE_EXTS)))],
         )
         if paths:
-            self.model.note_source(Path(paths[0]).stem)
+            self.model.note_source(Path(paths[0]).stem, str(Path(paths[0]).parent))
             self._load_images_async(list(paths))
 
     def add_folder_dialog(self):
@@ -47,13 +47,13 @@ class FileLoader:
         if not paths:
             messagebox.showinfo(APP_TITLE, "선택한 폴더에서 이미지 파일을 찾지 못했습니다.")
             return
-        self.model.note_source(Path(folder).name)
+        self.model.note_source(Path(folder).name, str(Path(folder).parent))
         self._load_images_async(paths)
 
     def open_pdf_dialog(self):
         path = filedialog.askopenfilename(title="PDF 선택", filetypes=[("PDF 파일", "*.pdf")])
         if path:
-            self.model.note_source(Path(path).stem)
+            self.model.note_source(Path(path).stem, str(Path(path).parent))
             self._load_pdf_async(path)
 
     # ---------------------------------------------------------- 드래그앤드롭
@@ -83,17 +83,17 @@ class FileLoader:
         for p in paths:
             p = p.strip("{}")
             if os.path.isdir(p):
-                self.model.note_source(Path(p).name)
+                self.model.note_source(Path(p).name, str(Path(p).parent))
                 image_paths.extend(pdf_core.list_images_in_folder(p))
             elif Path(p).suffix.lower() in pdf_core.IMAGE_EXTS:
-                self.model.note_source(Path(p).stem)
+                self.model.note_source(Path(p).stem, str(Path(p).parent))
                 image_paths.append(p)
             else:
                 flush_images()
                 if any(handler(p) for handler in self.extra_drop_handlers):
                     continue
                 if p.lower().endswith(".pdf"):
-                    self.model.note_source(Path(p).stem)
+                    self.model.note_source(Path(p).stem, str(Path(p).parent))
                     self._load_pdf_async(p)
         flush_images()
 

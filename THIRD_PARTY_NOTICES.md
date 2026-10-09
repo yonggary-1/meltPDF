@@ -19,5 +19,24 @@ meltPDF는 아래 소프트웨어를 사용합니다. 각 라이선스와 출처
 
 ## 그 밖의 라이브러리 (requirements.txt)
 
-Pillow (HPND), img2pdf (LGPL-3.0), pikepdf (MPL-2.0), PyMuPDF (AGPL-3.0 / 상용), tkinterdnd2 (MIT), rarfile (ISC), PyInstaller (GPL-2.0 + 예외; 만든 exe 배포에는 제약 없음).
-참고: PyMuPDF는 AGPL이라, 이 프로그램의 소스를 공개하지 않고 exe만 다른 사람에게 배포할 때는 라이선스 검토가 필요합니다. 개인적으로 쓰는 경우에는 해당 없음.
+라이선스는 설치된 패키지의 메타데이터와 동봉된 라이선스 파일에서 확인한 값입니다(확인한 버전을 함께 적음).
+
+| 이름 | 확인한 버전 | 라이선스 | 비고 |
+|---|---|---|---|
+| **PyMuPDF** | 1.28.2 | **AGPL-3.0 또는 Artifex 상용 라이선스 (이중)** | 이 프로젝트의 라이선스를 AGPL로 정하게 된 이유. 패키지의 `COPYING` 파일은 이 이중 라이선스를 한 줄로 알릴 뿐 전문이 아님 |
+| img2pdf | 0.6.3 | LGPL-3.0 | 무손실 JPEG 삽입 |
+| pikepdf | 10.16.0 | MPL-2.0 | 휠에 포함된 qpdf 등 부품의 라이선스는 패키지의 `licenses/third-party-licenses` 폴더에 있음. MPL-2.0은 AGPL로의 결합을 허용(2차 라이선스) |
+| Pillow | 12.3.0 | MIT-CMU (HPND 계열) | |
+| tkinterdnd2 | 0.6.3 | MIT | |
+| rarfile | 4.5 | ISC | 위 RAR 지원 참고 |
+| PyInstaller (exe 만들 때만 사용) | 6.22.3 | GPL-2.0 이상 + 부트로더 예외 | 부트로더 예외로 만들어진 exe는 어떤 라이선스로든 배포 가능. 공식 `COPYING.txt`에서 확인 |
+
+### 이 프로젝트의 라이선스를 정한 과정
+
+- 배포하는 exe에는 PyMuPDF가 들어갑니다. PyMuPDF를 오픈소스 쪽 조건으로 쓰려면 AGPL-3.0이 적용되므로, 이 프로젝트를 **AGPL-3.0 이상(AGPL-3.0-or-later)** 으로 정했습니다.
+- img2pdf(LGPL-3.0), pikepdf(MPL-2.0), Pillow, tkinterdnd2, rarfile은 AGPL-3.0 프로젝트에 함께 넣어 배포할 수 있는 조건입니다. (LGPL-3.0은 GPL-3.0의 추가 허용이며 GPL-3.0 §13이 AGPL과의 결합을 허용, MPL-2.0은 "2차 라이선스"로 AGPL을 명시)
+- UnRAR(`tools/UnRAR.exe`)는 별도로 실행되는 프로그램이며 UnRAR 라이선스(RAR 해제 용도의 재배포 허용, 압축 생성기 제작 금지)를 따릅니다. AGPL이 적용되는 대상이 아닙니다.
+- exe를 다른 사람에게 배포할 때는 소스 저장소 위치를 함께 알려야 합니다(AGPL). 개인적으로 쓰기만 할 때는 해당 없음.
+- PyMuPDF를 쓰지 않거나 Artifex 상용 라이선스를 사면 다른 라이선스를 고를 수 있습니다.
+- 법률 자문이 아니라 각 라이선스 조건을 읽고 정리한 것입니다. 배포 범위가 넓어지면 전문가 검토를 권합니다.
+- **`LICENSE` 파일**은 공식 원문(GNU AGPL v3)이어야 합니다. 이 작업 환경에서는 원문 사이트(gnu.org)에 접속할 수 없어 받지 못했고 임의로 작성하지 않았습니다. GitHub 저장소 화면의 "Add file → Create new file → 파일 이름에 `LICENSE` 입력 → Choose a license template → GNU Affero General Public License v3.0"로 추가하세요.

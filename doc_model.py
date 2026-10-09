@@ -32,6 +32,8 @@ class DocModel:
         # 처음 불러온 파일의 이름(확장자 뺀 것). 내보낼 PDF의 기본 파일 이름이자 이름 일괄 변경의 기본
         # 접두사로 쓴다. 목록이 완전히 비면 다시 "처음"부터 시작한다.
         self.source_name: Optional[str] = None
+        # 처음 불러온 파일이 들어 있는 폴더(폴더를 넣었으면 그 폴더가 들어 있는 폴더). 이미지 내보내기의 "원본 파일 위치".
+        self.source_dir: Optional[str] = None
         self._listeners: Dict[str, List[Callable[[], None]]] = {
             "structure": [], "order": [], "selection": [],
         }
@@ -45,11 +47,12 @@ class DocModel:
             fn()
 
     # ---- 처음 불러온 파일 이름
-    def note_source(self, name: str):
-        """처음 불러온 파일의 이름(확장자 뺀 것, 폴더면 폴더 이름)을 기록한다.
+    def note_source(self, name: str, directory: Optional[str] = None):
+        """처음 불러온 파일의 이름(확장자 뺀 것, 폴더면 폴더 이름)과, 그 파일이 있는 폴더를 기록한다.
         이미 기록된 이름이 있으면 무시한다 - "처음 던져넣은 파일" 이름을 유지하기 위해서."""
         if self.source_name is None and name:
             self.source_name = name
+            self.source_dir = directory
 
     def final_order(self) -> List[str]:
         """PDF로 내보낼 때의 실제 페이지 순서(표지가 있으면 맨 앞)."""
@@ -93,6 +96,7 @@ class DocModel:
         self.selected.clear()
         if not self.order:
             self.source_name = None
+            self.source_dir = None
         self._emit("structure")
 
     def clear(self):
@@ -102,6 +106,7 @@ class DocModel:
         self.selected.clear()
         self.cover_id = None
         self.source_name = None
+        self.source_dir = None
         self._emit("structure")
 
     # ---- 표지

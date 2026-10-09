@@ -14,6 +14,7 @@ from doc_model import DocModel
 from drag_reorder import DragReorder
 from export import Exporter
 from file_loader import FileLoader
+from image_export_dialog import ImageExporter
 from image_viewer import ImageViewer
 from key_nav import KeyNav
 from load_queue import LoadQueue
@@ -57,6 +58,7 @@ class App:
         self.settings_dialog = SettingsDialog(root, self.settings)
         self.actions = PageActions(self.view.canvas, self.model)
         self.exporter = Exporter(root, self.model, self.status)
+        self.image_exporter = ImageExporter(root, self.model, self.status, self.settings)
 
         self._fill_toolbar()
         self._fill_bottom_bar()
@@ -110,3 +112,4 @@ class App:
         ttk.Button(danger, text="전체 삭제", command=self.actions.delete_all).pack(
             side=tk.LEFT, padx=(4, 0))
         self.exporter.make_button(bar).pack(side=tk.RIGHT)
+        self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))

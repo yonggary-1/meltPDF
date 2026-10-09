@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import memory_info
 from config import APP_TITLE
@@ -50,6 +50,23 @@ class SettingsDialog:
                      else "0 = 자동 (남은 메모리를 알 수 없으면 2GB)")
         ttk.Label(limit_row, text="   " + auto_text, foreground="#555555").pack(side=tk.LEFT)
 
+        ttk.Label(frm, text="이미지 내보내기 기본 폴더:", font=("", 10, "bold")).grid(
+            row=5, column=0, sticky="w", pady=(16, 0))
+        dir_row = ttk.Frame(frm)
+        dir_row.grid(row=6, column=0, sticky="we", pady=(4, 0))
+        dir_var = tk.StringVar(master=win, value=str(self.settings.get("image_export_dir") or ""))
+        ttk.Entry(dir_row, textvariable=dir_var, width=48).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def browse():
+            chosen = filedialog.askdirectory(title="이미지 내보내기 기본 폴더", parent=win,
+                                             initialdir=dir_var.get() or None)
+            if chosen:
+                dir_var.set(chosen)
+
+        ttk.Button(dir_row, text="찾아보기", command=browse).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Label(frm, text="비워 두면 지정하지 않은 것입니다. 이 폴더 안에 파일 이름으로 하위 폴더를 만들어 풉니다.",
+                  foreground="#555555").grid(row=7, column=0, sticky="w", pady=(2, 0))
+
         def apply():
             try:
                 limit = float(limit_var.get().strip() or "0")
@@ -60,10 +77,11 @@ class SettingsDialog:
                 return
             self.settings.set("storage_mode", mode_var.get())
             self.settings.set("ram_limit_gb", limit)
+            self.settings.set("image_export_dir", dir_var.get().strip())
             win.destroy()
 
         btns = ttk.Frame(frm)
-        btns.grid(row=5, column=0, sticky="e", pady=(16, 0))
+        btns.grid(row=8, column=0, sticky="e", pady=(16, 0))
         ttk.Button(btns, text="저장", command=apply).pack(side=tk.LEFT)
         ttk.Button(btns, text="취소", command=win.destroy).pack(side=tk.LEFT, padx=(6, 0))
         win.bind("<Escape>", lambda e: win.destroy())

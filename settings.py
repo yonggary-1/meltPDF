@@ -19,6 +19,7 @@ STORAGE_DISK = "disk"   # 항상 디스크 임시 폴더를 쓴다
 DEFAULTS: Dict[str, Any] = {
     "storage_mode": STORAGE_ASK,
     "ram_limit_gb": 0.0,        # 0 = 자동(그 순간 남은 메모리의 절반)
+    "image_export_dir": "",     # 이미지 내보내기 기본 폴더 ("" = 지정 안 함)
 }
 
 
@@ -49,6 +50,9 @@ class Settings:
         limit = loaded.get("ram_limit_gb")
         if isinstance(limit, (int, float)) and not isinstance(limit, bool) and limit >= 0:
             self._data["ram_limit_gb"] = float(limit)
+        export_dir = loaded.get("image_export_dir")
+        if isinstance(export_dir, str):
+            self._data["image_export_dir"] = export_dir
 
     def get(self, key: str) -> Any:
         return self._data.get(key, DEFAULTS[key])
