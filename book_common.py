@@ -30,12 +30,15 @@ class ExtractedImage:
 class ExtractResult(list):
     """꺼낸 이미지 목록(그냥 list처럼 쓰면 됨) + 사용자에게 알려야 할 경고들(예: 손상되어 빼놓은 파일).
     경고가 있어도 나머지 이미지는 정상적으로 쓴다.
-    notes는 경고가 아닌 참고 안내(예: 목차가 잘린 zip을 앞에서부터 복구해 읽었음) - 정보 창으로 알린다."""
+    notes는 경고가 아닌 참고 안내(예: 목차가 잘린 zip을 앞에서부터 복구해 읽었음) - 정보 창으로 알린다.
+    meta는 파일에서 읽은 서지 정보(book_meta.BookMeta). 문서 형식(epub/fb2/mobi/앞으로의 형식)은 반드시 채우고,
+    압축 파일(zip/rar)은 None으로 둔다."""
 
-    def __init__(self, items=(), warnings=None, notes=None):
+    def __init__(self, items=(), warnings=None, notes=None, meta=None):
         super().__init__(items)
         self.warnings = list(warnings or [])
         self.notes = list(notes or [])
+        self.meta = meta
 
 
 def is_image_name(name: str) -> bool:

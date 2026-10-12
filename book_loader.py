@@ -84,6 +84,7 @@ class BookLoader:
     # ---------------------------------------------------------- 백그라운드 처리 (일꾼 스레드)
     def _extract(self, path: str, name: str, to_ram: bool) -> LoadResult:
         items: List[pdf_core.PageItem] = []
+        meta = None
         errors: List[str] = []
         notes: List[str] = []
         try:
@@ -93,6 +94,7 @@ class BookLoader:
                         f"{name}에서 이미지 꺼내는 중... {done}/{total}"))
 
             extracted = book_import.extract_images(path, progress, to_ram)
+            meta = getattr(extracted, "meta", None)             # 서지 정보(문서 형식만, 압축 파일은 None)
             if not extracted:
                 errors.append(f"{name}: 이미지가 들어 있지 않습니다.")
             notes.extend(getattr(extracted, "notes", ()))      # 참고 안내(예: 끝이 잘린 zip을 복구해 읽음)
@@ -117,7 +119,8 @@ class BookLoader:
                         f"{name} 썸네일 만드는 중... {n}/{t}"))
         except BookError as e:
             errors.append(f"{name}: {e}")
-        return LoadResult(items, errors, [it.label for it in items if it.damaged], name, notes)
+        return LoadResult(items, errors, [it.label for it in items if it.damaged], name, notes,
+                          meta if items else None)        # 이미지를 하나도 넣지 못한 파일의 서지 정보는 쓰지 않는다
 
     @staticmethod
     def _load_one(ex) -> pdf_core.PageItem:
@@ -132,6 +135,7 @@ class BookLoader:
     def _finish_one(self, result, error, reserved_ram: int = 0):
         self._pending_ram = max(0, self._pending_ram - reserved_ram)
         result = result if result else LoadResult(errors=[f"예상치 못한 오류: {error}"])
+        self.model.offer_meta(result.meta)
         self.model.add(result.items)     # 완료 시 화면과 상태 표시줄이 모델 알림으로 갱신된다
         load_report.show(result)
 

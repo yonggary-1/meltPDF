@@ -7,6 +7,7 @@ epub은 zip 안에 xhtml 쪽들이 들어 있는 책이다. 읽는 순서는 이
 - 같은 이미지를 여러 쪽에서 쓰면 처음 나온 자리에만 넣는다. 쪽에서 쓰지 않아도 표지(cover-image)로 지정된 이미지는 맨 앞에 넣는다.
 - 이미지는 재인코딩 없이 원본 바이트 그대로 꺼낸다. 이미지가 없는 글 위주 epub은 "이미지가 들어 있지 않습니다"가 된다.
 - DRM(저작권 보호)으로 암호화된 이미지/쪽이 있으면 거절한다(우회하지 않는다). 글꼴만 섞어 놓은 난독화는 DRM이 아니므로 무시한다.
+- 서지 정보: content.opf의 <metadata>(dc:title, dc:creator, dc:description ...)를 읽어 결과(meta)에 담는다.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from typing import Dict, List, Optional, Tuple
 
+import book_meta
 import name_codec
 import temp_store
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES, copy_limited
@@ -200,6 +202,45 @@ def _images_in_order(z: _Zip, docs: List[str], covers: List[str], direct: List[s
     return order
 
 
+def _read_meta(opf, source: str) -> book_meta.BookMeta:
+    """content.opf의 <metadata>에서 서지 정보를 읽는다. 저자는 역할이 없거나 저자(aut)인 creator만 쓴다(없으면 creator 전부)."""
+    meta_el = next((el for el in opf.iter() if local_name(el.tag) == "metadata"), None)
+    m = book_meta.BookMeta(source=source)
+    if meta_el is None:
+        return m
+    unique_id = opf.get("unique-identifier") or ""
+    roles: Dict[str, str] = {}                          # EPUB3: <meta refines="#id" property="role">aut</meta>
+    for el in meta_el.iter():
+        if local_name(el.tag) == "meta" and (el.get("property") or "") == "role":
+            roles[(el.get("refines") or "").lstrip("#")] = "".join(el.itertext()).strip().lower()
+    vals: Dict[str, List] = {}
+    for el in meta_el.iter():
+        name = local_name(el.tag)
+        text = "".join(el.itertext()).strip()
+        if not text:
+            continue
+        attrs = {local_name(k): v for k, v in el.attrib.items()}
+        vals.setdefault(name, []).append((text, attrs))
+    first = lambda key: vals.get(key, [("", {})])[0][0]
+    creators = vals.get("creator", [])
+    authors = [t for t, a in creators if (a.get("role") or roles.get(a.get("id", ""), "aut")).lower() == "aut"]
+    m.title = first("title")
+    m.author = book_meta.join_unique(authors or [t for t, _ in creators], "; ")
+    m.subject = book_meta.strip_html(first("description"))
+    m.keywords = book_meta.join_unique((t for t, _ in vals.get("subject", [])), ", ")
+    m.publisher = first("publisher")
+    m.language = first("language")
+    dates = vals.get("date", [])
+    pub = [t for t, a in dates if (a.get("event") or "").lower() == "publication"]
+    m.date = pub[0] if pub else (dates[0][0] if dates else "")
+    ids = vals.get("identifier", [])
+    isbn = [t for t, a in ids if (a.get("scheme") or "").lower() == "isbn" or t.lower().startswith("urn:isbn:")]
+    main = [t for t, a in ids if a.get("id") and a.get("id") == unique_id]
+    ident = (isbn or main or [t for t, _ in ids] or [""])[0]
+    m.identifier = re.sub(r"(?i)^urn:isbn:", "", ident)
+    return m.clean()
+
+
 def _check_drm(z: _Zip, wanted: List[str], docs: List[str]) -> None:
     name = z.find("META-INF/encryption.xml")
     if not name:
@@ -246,7 +287,7 @@ def extract_epub(path: str, on_progress: ProgressFn = noop_progress, to_ram: boo
         _check_drm(z, order, docs)
         if sum(z.by_name[n].file_size for n in order) > MAX_TOTAL_BYTES:
             raise BookError("이미지 전체 크기가 너무 큽니다(16GB 초과).")
-        results = ExtractResult()
+        results = ExtractResult(meta=_read_meta(opf, os.path.basename(path)))
         total = len(order)
         for done, name in enumerate(order, start=1):
             info = z.by_name[name]

@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox
 import damaged_image
 import load_report
 import pdf_core
+import pdf_meta
 from config import APP_TITLE, DND_FILES, HAS_DND
 from doc_model import DocModel
 from load_queue import LoadQueue
@@ -128,11 +129,17 @@ class FileLoader:
     def _load_pdf_async(self, path):
         self.status.set(f"PDF 여는 중: {Path(path).name}")
 
-        def done(items, error):
+        def work():
+            items = pdf_core.load_pdf_items(path)
+            return items, (pdf_meta.read_pdf_meta(path, Path(path).name) if items else None)
+
+        def done(result, error):
             if error:
                 messagebox.showerror(APP_TITLE, f"PDF를 여는 데 실패했습니다:\n{error}")
                 self.status.refresh()
             else:
+                items, meta = result
+                self.model.offer_meta(meta)        # PDF의 서지 정보(문서 정보/XMP)
                 self.model.add(items)
 
-        self.jobs.submit(lambda: pdf_core.load_pdf_items(path), done)
+        self.jobs.submit(work, done)

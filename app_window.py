@@ -18,6 +18,7 @@ from image_export_dialog import ImageExporter
 from image_viewer import ImageViewer
 from key_nav import KeyNav
 from load_queue import LoadQueue
+from meta_dialog import MetaDialog
 from page_actions import PageActions
 from ram_meter import RamMeter
 from rename_pages import RenamePages
@@ -57,6 +58,7 @@ class App:
         self.loader.extra_drop_handlers.append(self.books.handle_drop)
         self.renamer = RenamePages(root, self.model)
         self.settings_dialog = SettingsDialog(root, self.settings)
+        self.meta_dialog = MetaDialog(root, self.model)
         self.actions = PageActions(self.view.canvas, self.model)
         self.exporter = Exporter(root, self.model, self.status)
         self.image_exporter = ImageExporter(root, self.model, self.status, self.settings)
@@ -104,6 +106,7 @@ class App:
 
         tb.add(ttk.Separator(tb, orient=tk.VERTICAL), gap_before=8)
         tb.add(ttk.Button(tb, text="설정", command=self.settings_dialog.open))
+        tb.add(ttk.Button(tb, text="서지 정보(Metadata)", command=self.meta_dialog.open))
 
     def _fill_bottom_bar(self):
         bar = self.status.frame

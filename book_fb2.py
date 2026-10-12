@@ -8,6 +8,7 @@ fb2는 XML 한 파일이다. 이미지는 문서 맨 끝의 <binary id="..." con
 - 이미지는 재인코딩 없이 base64만 풀어서 그대로 꺼낸다. 이름은 binary의 id(+내용에 맞춘 확장자).
 - fb2.zip은 안에 .fb2 파일 하나가 들어 있는 zip이다.
 - 큰 파일을 위해 XML을 한꺼번에 올리지 않고 조금씩 읽는다(iterparse). ENTITY 선언이 있는 파일은 거절한다.
+- 서지 정보: 맨 앞 <description>의 title-info(제목, 저자, 소개, 키워드, 언어, 날짜)와 publish-info(출판사, 연도, ISBN).
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from typing import BinaryIO, Dict, List, Optional
 
+import book_meta
 import temp_store
 from book_common import (BookError, ExtractedImage, ExtractResult, ProgressFn, local_name, noop_progress)
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES
@@ -58,6 +60,47 @@ def estimate_bytes(path: str) -> int:
         return 0
 
 
+def _read_meta(desc) -> book_meta.BookMeta:
+    """<description> 요소에서 서지 정보를 읽는다."""
+    def child(el, name):
+        if el is None:
+            return None
+        return next((c for c in el if local_name(c.tag) == name), None)
+
+    def text(el):
+        return " ".join("".join(el.itertext()).split()) if el is not None else ""
+
+    def person(el):
+        parts = [text(child(el, n)) for n in ("first-name", "middle-name", "last-name")]
+        name = " ".join(p for p in parts if p)
+        return name or text(child(el, "nickname"))
+
+    ti = child(desc, "title-info")
+    pi = child(desc, "publish-info")
+    m = book_meta.BookMeta()
+    if ti is not None:
+        m.title = text(child(ti, "book-title"))
+        m.author = book_meta.join_unique((person(c) for c in ti if local_name(c.tag) == "author"), "; ")
+        ann = child(ti, "annotation")
+        if ann is not None:
+            paras = [" ".join("".join(c.itertext()).split()) for c in ann]
+            m.subject = "\n".join(p for p in paras if p) or text(ann)
+        m.keywords = text(child(ti, "keywords"))
+        m.language = text(child(ti, "lang"))
+        date_el = child(ti, "date")
+        if date_el is not None:
+            m.date = (date_el.get("value") or "").strip() or text(date_el)
+    if pi is not None:
+        m.publisher = text(child(pi, "publisher"))
+        m.identifier = text(child(pi, "isbn"))
+        year = text(child(pi, "year"))
+        if year and (not m.date or book_meta.normalize_date(m.date) is None):
+            m.date = year
+        if not m.title:
+            m.title = text(child(pi, "book-name"))
+    return m
+
+
 class _Chain:
     """이미 읽어 본 앞부분(head)을 다시 앞에 붙여 주는 읽기 전용 스트림 - XML 파서가 처음부터 읽을 수 있게 한다."""
 
@@ -91,12 +134,21 @@ def _parse(stream: BinaryIO, to_ram: bool, on_progress: ProgressFn, results: Ext
     binary_order: List[str] = []
     total_bytes = 0
     in_binary_depth = 0
+    in_description = 0
     try:
         for event, el in ET.iterparse(stream, events=("start", "end")):
             name = local_name(el.tag)
             if event == "start":
                 if name == "binary":
                     in_binary_depth += 1
+                elif name == "description":
+                    in_description += 1
+                continue
+            if name == "description" and in_description:
+                in_description -= 1
+                if results.meta is None:
+                    results.meta = _read_meta(el)
+                el.clear()
                 continue
             if name == "image" and not in_binary_depth:
                 href = ""
@@ -144,7 +196,7 @@ def _parse(stream: BinaryIO, to_ram: bool, on_progress: ProgressFn, results: Ext
                     blobs[bid] = ExtractedImage(label=label, path=out_path)
                 binary_order.append(bid)
                 on_progress(len(binary_order), 0)
-            elif name in ("p", "section", "title", "emphasis", "strong", "a") and not in_binary_depth:
+            elif name in ("p", "section", "title", "emphasis", "strong", "a") and not in_binary_depth and not in_description:
                 el.clear()                          # 본문 글은 쓰지 않으니 메모리에서 바로 버린다(image 자리는 위에서 이미 기록함)
     except ET.ParseError as e:
         raise BookError(f"fb2를 읽지 못했습니다(XML 오류): {e}")
@@ -176,6 +228,9 @@ def extract_fb2(path: str, on_progress: ProgressFn = noop_progress, to_ram: bool
                 images = _parse(stream, to_ram, on_progress, results)
     except (zipfile.BadZipFile, OSError) as e:
         raise BookError(f"fb2를 열지 못했습니다: {e}")
+    meta = results.meta or book_meta.BookMeta()
+    meta.source = os.path.basename(path)
+    results.meta = meta.clean()
     results.extend(images)
     on_progress(len(images), len(images))
     return results

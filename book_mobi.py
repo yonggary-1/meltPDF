@@ -12,6 +12,8 @@ MOBI / AZW / AZW3 읽기 - 킨들 계열 전자책 안의 이미지를 "책을 �
 - MOBI와 AZW3가 함께 들어 있는 파일(combo)은 MOBI 쪽만 읽는다(두 쪽이 같은 이미지 레코드를 쓴다).
 - DRM(암호화 표시가 있음)은 열지 않는다(우회하지 않는다). Topaz(.azw1), KFX(.azw8/.kfx) 등 다른 킨들 형식은 지원하지 않는다.
 - 이미지는 재인코딩 없이 레코드 바이트 그대로 꺼낸다.
+- 서지 정보: 머리의 책 이름(full name)과 EXTH 레코드(100 저자, 101 출판사, 103 소개, 104 ISBN, 105 주제, 106 출판일,
+  503 바뀐 제목, 524 언어)를 읽는다.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ import re
 import struct
 from typing import BinaryIO, List, Optional
 
+import book_meta
 import temp_store
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES
 from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, noop_progress
@@ -80,6 +83,10 @@ class _Header:
         if self.header_len >= 0xE4 and len(r0) >= 0xF4:
             self.extra_flags = struct.unpack(">H", r0[0xF2:0xF4])[0]
         self.exth = {}
+        self.exth_all = {}                       # 같은 번호가 여러 번 나오는 레코드(저자 여러 명 등)
+        self.encoding = "utf-8" if struct.unpack(">I", r0[28:32])[0] == 65001 else "cp1252"
+        name_off, name_len = struct.unpack(">II", r0[84:92])
+        self.full_name = r0[name_off:name_off + name_len] if 0 < name_len < 4096 else b""
         flags = struct.unpack(">I", r0[128:132])[0]
         pos = 16 + self.header_len
         if flags & 0x40 and r0[pos:pos + 4] == b"EXTH":
@@ -91,6 +98,7 @@ class _Header:
                     if rlen < 8:
                         break
                     self.exth.setdefault(rtype, r0[p + 8:p + rlen])
+                    self.exth_all.setdefault(rtype, []).append(r0[p + 8:p + rlen])
                     p += rlen
             except struct.error:
                 pass
@@ -98,6 +106,24 @@ class _Header:
     def exth_int(self, rtype: int) -> Optional[int]:
         v = self.exth.get(rtype)
         return int.from_bytes(v, "big") if v else None
+
+
+_META_EXTH = {"author": 100, "publisher": 101, "subject": 103, "identifier": 104, "keywords": 105, "date": 106,
+              "language": 524}
+
+
+def _read_meta(hdr: _Header, source: str) -> book_meta.BookMeta:
+    def texts(rtype: int) -> List[str]:
+        return [v.decode(hdr.encoding, "replace").strip("\x00 ") for v in hdr.exth_all.get(rtype, [])]
+
+    m = book_meta.BookMeta(source=source)
+    m.title = (texts(503) or [hdr.full_name.decode(hdr.encoding, "replace")])[0]
+    m.author = book_meta.join_unique(texts(100), "; ")
+    m.subject = book_meta.strip_html((texts(103) or [""])[0])
+    m.keywords = book_meta.join_unique(texts(105), ", ")
+    for key in ("publisher", "identifier", "date", "language"):
+        setattr(m, key, (texts(_META_EXTH[key]) or [""])[0])
+    return m.clean()
 
 
 def _palmdoc_decompress(data: bytes) -> bytes:
@@ -211,7 +237,7 @@ def extract_mobi(path: str, on_progress: ProgressFn = noop_progress, to_ram: boo
         if hdr.encryption != 0:
             raise BookError("저작권 보호(DRM)가 걸린 책이라 열지 않습니다.")
         first = hdr.first_image
-        results = ExtractResult()
+        results = ExtractResult(meta=_read_meta(hdr, os.path.basename(path)))
         if not (0 < first < pdb.count):
             return results                                # 이미지 레코드가 없는 책(글만 있음) - 부르는 쪽이 "이미지가 들어 있지 않습니다"로 알린다
         thumb = hdr.exth_int(202)

@@ -26,6 +26,7 @@ class LoadResult:
     damaged: List[str] = field(default_factory=list)
     source: str = ""
     notes: List[str] = field(default_factory=list)      # 참고 안내(오류 아님) - 정보 창으로 알린다
+    meta: object = None                                  # 파일에서 읽은 서지 정보(book_meta.BookMeta) - 문서 형식만
 
 
 def _lines(names: List[str]) -> str:

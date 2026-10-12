@@ -20,6 +20,7 @@ from typing import Callable, Dict, List, Optional, Set
 from PIL import Image, ImageTk
 
 import pdf_core
+from book_meta import BookMeta
 
 
 class DocModel:
@@ -34,6 +35,11 @@ class DocModel:
         self.source_name: Optional[str] = None
         # 처음 불러온 파일이 들어 있는 폴더(폴더를 넣었으면 그 폴더가 들어 있는 폴더). 이미지 내보내기의 "원본 파일 위치".
         self.source_dir: Optional[str] = None
+        # 서지 정보: meta는 PDF로 내보낼 때 쓰는 현재 값(서지 정보 창에서 고친 것 포함), meta_sources는 불러온 파일들에서
+        # 읽은 원래 값(읽은 순서). 현재 값은 "서지 정보가 있는 첫 파일"의 것으로 채우고, 사용자가 고친 뒤에는 바꾸지 않는다.
+        self.meta: BookMeta = BookMeta()
+        self.meta_sources: List[BookMeta] = []
+        self.meta_edited = False
         self._listeners: Dict[str, List[Callable[[], None]]] = {
             "structure": [], "order": [], "selection": [],
         }
@@ -53,6 +59,26 @@ class DocModel:
         if self.source_name is None and name:
             self.source_name = name
             self.source_dir = directory
+
+    # ---- 서지 정보
+    def offer_meta(self, meta: Optional[BookMeta]):
+        """불러온 파일에서 읽은 서지 정보를 알린다. 아직 현재 값이 비어 있고 사용자가 고친 적이 없으면 현재 값이 된다."""
+        if meta is None or meta.is_empty():
+            return
+        if not any(m.source == meta.source and m.values() == meta.values() for m in self.meta_sources):
+            self.meta_sources.append(meta.copy())
+        if not self.meta_edited and self.meta.is_empty():
+            self.meta = meta.copy()
+
+    def set_meta(self, meta: BookMeta):
+        """서지 정보 창에서 저장한 값."""
+        self.meta = meta.copy()
+        self.meta_edited = True
+
+    def _reset_meta(self):
+        self.meta = BookMeta()
+        self.meta_sources = []
+        self.meta_edited = False
 
     def final_order(self) -> List[str]:
         """PDF로 내보낼 때의 실제 페이지 순서(표지가 있으면 맨 앞)."""
@@ -97,6 +123,7 @@ class DocModel:
         if not self.order:
             self.source_name = None
             self.source_dir = None
+            self._reset_meta()
         self._emit("structure")
 
     def clear(self):
@@ -107,6 +134,7 @@ class DocModel:
         self.cover_id = None
         self.source_name = None
         self.source_dir = None
+        self._reset_meta()
         self._emit("structure")
 
     # ---- 표지

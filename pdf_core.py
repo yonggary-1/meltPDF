@@ -27,6 +27,8 @@ import img2pdf
 import pikepdf
 import fitz  # PyMuPDF
 
+import pdf_meta
+
 THUMB_MAX = 160          # 리스트에 보여줄 썸네일 최대 변 길이(px)
 PREVIEW_RENDER_MAX_PX = 320  # 기존 PDF 페이지 미리보기를 렌더링할 때 최대 변 길이
                               # (화면 표시 전용 - 내보내기 결과물의 화질과는 무관함)
@@ -193,8 +195,10 @@ def export_pdf(
     items: List[PageItem],
     output_path: Union[str, Path],
     cover_id: Optional[str] = None,
+    meta=None,
 ) -> None:
     """items를 순서대로(단, cover_id가 있으면 그 항목을 맨 앞으로) PDF로 내보낸다.
+    meta(book_meta.BookMeta)가 있으면 서지 정보(문서 정보 + XMP)로 넣는다(pdf_meta.apply_meta).
 
     - kind='image' 항목: 무용지(페이지 크기 = 이미지 픽셀 크기) 페이지로 새로 변환.
     - kind='pdf_page' 항목: 원본 PDF의 그 페이지 객체를 pikepdf로 그대로 복사(재인코딩/래스터화
@@ -258,6 +262,7 @@ def export_pdf(
                 pending_bytes += size
         flush(pending)
 
+        pdf_meta.apply_meta(output, meta)
         output.save(output_path)
     finally:
         output.close()

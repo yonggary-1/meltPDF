@@ -42,13 +42,14 @@ class Exporter:
 
         ordered_items = [model.items[iid] for iid in model.order]
         cover_id = model.cover_id
+        meta = model.meta.copy()          # 서지 정보(서지 정보 창에서 확인/수정한 값)
         if self.button is not None:
             self.button.configure(state="disabled")
         self.status.set("PDF 생성 중...")
 
         def work():
             try:
-                pdf_core.export_pdf(ordered_items, out_path, cover_id=cover_id)
+                pdf_core.export_pdf(ordered_items, out_path, cover_id=cover_id, meta=meta)
                 self.root.after(0, lambda: self._on_export_done(out_path, None))
             except Exception as e:
                 self.root.after(0, lambda: self._on_export_done(out_path, e))
