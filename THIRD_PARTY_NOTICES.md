@@ -17,6 +17,25 @@ meltPDF는 아래 소프트웨어를 사용합니다. 각 라이선스와 출처
 | https://pypi.org/project/unrar/ (GPL-3) | UnRAR 라이브러리(`unrar.dll`)를 ctypes로 부르는 얇은 껍데기. DLL을 포함해 주지 않고 2019년 이후 갱신이 없으며, GPL-3 라이선스라 같이 배포하면 이 프로젝트에도 GPL이 번질 수 있음 |
 | https://kb.aspose.com/zip/python/extract-rar-files-using-python/ (Aspose.ZIP) | 상용 라이브러리(체험판 제한/유료 라이선스). 무료 프로젝트에 넣기에 부적절 |
 
+## DjVu 지원 (v0.16.0)
+
+| 이름 | 쓰는 방식 | 라이선스 | 출처 |
+|---|---|---|---|
+| **DjVuLibre 3.5.28** (`tools/ddjvu.exe`, `tools/djvused.exe`) | djvu 쪽을 그림으로 풀기, 쪽 수와 서지 정보 읽기. 실행 파일에 포함해서 배포 | GPL-2.0-or-later - 전문은 `tools/djvulibre/COPYING` | https://djvu.sourceforge.net/ . 이 실행 파일을 만든 소스 묶음(Ubuntu 소스 패키지) 전체가 `tools/djvulibre/`에 있고, 빌드 방법과 수정 내역(소스 수정 없음)은 `tools/README.md` |
+
+## 7z 지원 (v0.16.0)
+
+| 이름 | 확인한 버전 | 라이선스 | 비고 |
+|---|---|---|---|
+| **py7zr** | 1.1.3 | LGPL-2.1-or-later | 7z/cb7 풀기 |
+| pyppmd, pybcj, inflate64, multivolumefile | 1.3.1, 1.0.8, 1.0.4, 0.2.3 | LGPL-2.1-or-later | py7zr가 쓰는 압축 해제 모듈 |
+| pycryptodomex | 3.24.1 | BSD / Public Domain | py7zr가 씀(암호 7z 판별) |
+| brotli, texttable | 1.2.0, 1.7.1 | MIT | py7zr가 씀 |
+| psutil | 7.2.2 | BSD-3-Clause | py7zr가 씀 |
+| backports.zstd | 1.8.0 | PSF-2.0 | py7zr가 씀(파이썬 3.14 미만) |
+
+tar/cbt는 파이썬 기본 라이브러리(tarfile)만 씁니다.
+
 ## 그 밖의 라이브러리 (requirements.txt)
 
 라이선스는 설치된 패키지의 메타데이터와 동봉된 라이선스 파일에서 확인한 값입니다(확인한 버전을 함께 적음).
@@ -34,7 +53,8 @@ meltPDF는 아래 소프트웨어를 사용합니다. 각 라이선스와 출처
 ### 이 프로젝트의 라이선스를 정한 과정
 
 - 배포하는 exe에는 PyMuPDF가 들어갑니다. PyMuPDF를 오픈소스 쪽 조건으로 쓰려면 AGPL-3.0이 적용되므로, 이 프로젝트를 **AGPL-3.0 이상(AGPL-3.0-or-later)** 으로 정했습니다.
-- img2pdf(LGPL-3.0), pikepdf(MPL-2.0), Pillow, tkinterdnd2, rarfile은 AGPL-3.0 프로젝트에 함께 넣어 배포할 수 있는 조건입니다. (LGPL-3.0은 GPL-3.0의 추가 허용이며 GPL-3.0 §13이 AGPL과의 결합을 허용, MPL-2.0은 "2차 라이선스"로 AGPL을 명시)
+- img2pdf(LGPL-3.0), pikepdf(MPL-2.0), Pillow, tkinterdnd2, rarfile, py7zr와 그 부품(LGPL-2.1 이상, MIT, BSD, PSF)은 AGPL-3.0 프로젝트에 함께 넣어 배포할 수 있는 조건입니다. (LGPL-2.1 이상은 GPL-2.0 이상/GPL-3.0으로 바꿔 쓸 수 있음) (LGPL-3.0은 GPL-3.0의 추가 허용이며 GPL-3.0 §13이 AGPL과의 결합을 허용, MPL-2.0은 "2차 라이선스"로 AGPL을 명시)
+- DjVuLibre(`tools/ddjvu.exe`, `tools/djvused.exe`)는 별도로 실행되는 GPL-2.0 이상 프로그램입니다. GPL에 따라 만든 소스를 `tools/djvulibre/`에 함께 넣었습니다.
 - UnRAR(`tools/UnRAR.exe`)는 별도로 실행되는 프로그램이며 UnRAR 라이선스(RAR 해제 용도의 재배포 허용, 압축 생성기 제작 금지)를 따릅니다. AGPL이 적용되는 대상이 아닙니다.
 - exe를 다른 사람에게 배포할 때는 소스 저장소 위치를 함께 알려야 합니다(AGPL). 개인적으로 쓰기만 할 때는 해당 없음.
 - PyMuPDF를 쓰지 않거나 Artifex 상용 라이선스를 사면 다른 라이선스를 고를 수 있습니다.

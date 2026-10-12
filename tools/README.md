@@ -61,3 +61,22 @@
 
 
                                             Alexander L. Roshal
+
+## ddjvu.exe / djvused.exe (DjVu 쪽 풀기, 쪽 수와 서지 정보 읽기용, v0.16.0)
+
+| 항목 | 내용 |
+|---|---|
+| 정체 | **DjVuLibre 3.5.28**의 명령줄 도구 두 개(윈도우 64비트, 정적 링크 - 별도 DLL 설치 불필요). `ddjvu`는 쪽을 그림(PNM)으로 풀고, `djvused`는 쪽 수와 서지 정보를 읽는다. |
+| 원작자 / 공식 사이트 | Léon Bottou, Yann LeCun 외 (AT&T, LizardTech에서 시작) - https://djvu.sourceforge.net/ |
+| 만든 소스 | Ubuntu 24.04 소스 패키지 `djvulibre 3.5.28-2ubuntu0.24.04.2` (공식 3.5.28 소스 + Fedora/Debian의 버그·보안 수정 패치 9개, 목록은 `djvulibre/` 안 debian 묶음의 `debian/patches/series`). 소스 묶음을 그대로 `tools/djvulibre/`에 넣어 두었다(GPL에 따라 실행 파일과 같이 소스를 제공). |
+| 소스 SHA-256 | `djvulibre_3.5.28.orig.tar.xz` `1223b7bf7c8dfe2e290882f3bfb88ba2468b30495a1bf8dfd54dc7e810987887` / `djvulibre_3.5.28-2ubuntu0.24.04.2.debian.tar.xz` `b1b370a10f3d6542056f0c3a42201101ab095b878650fdf6c4fd31f44d4c851f` |
+| 라이선스 | **GPL-2.0 이상**(GPL-2.0-or-later). 전문은 `djvulibre/COPYING`. 이 프로젝트(AGPL-3.0 이상)와 함께 배포할 수 있다(GPL-2.0 "이상"이라 GPL-3.0으로 쓸 수 있고, 따로 실행되는 프로그램이기도 함). |
+| 소스 수정 | 없음. 컴파일 옵션만: 정적 라이브러리로 링크하려고 `DJVUAPI`, `DDJVUAPI`, `MINILISPAPI` 매크로를 비워 둠(윈도우에서 기본값이 DLL 가져오기라서). JPEG/TIFF 지원 없이 빌드(쪽 배경을 JPEG로 넣은 드문 djvu는 그 배경을 못 그릴 수 있음, TIFF 출력은 쓰지 않음). |
+| 만든 방법 | 리눅스에서 mingw-w64로 교차 컴파일 (`build_djvulibre_windows.sh`, 같은 소스로 다시 만들 수 있음). 실행 파일 안의 빌드 시각만 달라 바이트가 매번 똑같지는 않다. |
+| SHA-256 | `ddjvu.exe` `23f8788e0456216ead4d17baa72208675a084ccf843f9f0e7f388915c02cf589` / `djvused.exe` `991bbe65e116f437031e9d246edd641d54bef2477cd74f58f3c84a5165062c33` |
+
+### 확인한 것 / 확인하지 못한 것
+- 확인: Wine 위에서 이 두 exe로 시험용 djvu(흑백 3쪽 + 컬러 1쪽, 흑백 글자 + 컬러 배경 합성 쪽, 깨진 쪽이 있는 파일)를 풀어, 리눅스판 DjVuLibre와 출력이 바이트까지 같음을 확인했다(표준 출력은 이진 모드로 나옴). 한글 서지 정보(UTF-8), 쪽 수, 깨진 쪽에서의 오류 종료도 같았다. 외부 DLL 의존은 윈도우 기본 DLL(KERNEL32, ADVAPI32, msvcrt)뿐이다.
+- 확인: 오류 메시지 번역 파일을 넣지 않아, 오류가 나면 영어 메시지 대신 메시지 이름이 나올 수 있다(meltPDF는 이를 짧게 줄여 보여 준다).
+- 확인하지 못함: 진짜 Windows에서의 실행. 명령줄 경로는 시스템 문자 코드(cp949 등)로 받으므로, 그 문자 코드에 없는 글자(일본어 등)가 든 경로는 meltPDF가 파일을 임시 폴더에 영어 이름으로 복사해서 넘긴다.
+

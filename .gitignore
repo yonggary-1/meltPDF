@@ -17,3 +17,5 @@ settings.json
 *.zip
 *.exe
 !tools/UnRAR.exe
+!tools/ddjvu.exe
+!tools/djvused.exe

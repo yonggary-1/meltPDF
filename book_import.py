@@ -2,7 +2,7 @@
 책/압축 파일 이미지 추출의 진입점 - 파일 앞부분(시그니처)을 보고 알맞은 읽기 모듈에 넘긴다.
 새 포맷은 자기 파일(archive_xxx.py 등)을 만든 뒤 여기 READERS에 한 줄만 추가한다.
 문서 형식(epub/fb2/mobi, 앞으로의 djvu 등)의 읽기 함수는 서지 정보도 읽어 ExtractResult.meta(book_meta.BookMeta)에 담아야 한다.
-압축 파일(zip/rar)만 meta 없이 돌려준다. 담긴 정보는 서지 정보 창에서 확인/수정하고 PDF로 내보낼 때 들어간다.
+압축 파일(zip/rar/7z/tar)만 meta 없이 돌려준다. 담긴 정보는 서지 정보 창에서 확인/수정하고 PDF로 내보낼 때 들어간다.
 
 확장자가 아니라 시그니처로 판별하는 이유: cbz라는 이름인데 실제로는 rar인 파일(또는 반대)이 흔하다.
 """
@@ -12,8 +12,11 @@ import os
 import zipfile
 from typing import Callable, List, Optional
 
+import archive_7z
 import archive_rar
+import archive_tar
 import archive_zip
+import book_djvu
 import book_epub
 import book_fb2
 import book_mobi
@@ -21,7 +24,8 @@ import book_topaz
 from book_common import BookError, ExtractedImage, ProgressFn, noop_progress
 
 # 사용자가 고를 수 있는 확장자(파일 선택 창 필터와 드래그앤드롭 판정에 쓴다)
-SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".epub", ".fb2", ".mobi", ".azw", ".azw3", ".azw1", ".tpz")
+SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".7z", ".cb7", ".tar", ".cbt",
+                  ".epub", ".fb2", ".mobi", ".azw", ".azw3", ".azw1", ".tpz", ".djvu", ".djv")
 
 
 def is_supported(path: str) -> bool:
@@ -31,20 +35,36 @@ def is_supported(path: str) -> bool:
 def _sniff(path: str) -> Optional[str]:
     try:
         with open(path, "rb") as f:
-            head = f.read(8)
+            head = f.read(512)
     except OSError as e:
         raise BookError(f"파일을 열 수 없습니다: {e}")
     if head[:4] in (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"):
         return _sniff_zip(path)
     if head[:7] == b"Rar!\x1a\x07\x00" or head[:8] == b"Rar!\x1a\x07\x01\x00":   # RAR 4 / RAR 5
         return "rar"
+    if archive_7z.looks_like_7z(head):
+        return "7z"
+    if archive_tar.looks_like_tar(head) or archive_tar.is_compressed_tar(path, head):
+        return "tar"
+    if book_djvu.looks_like_djvu(head):
+        return "djvu"
     if book_topaz.is_topaz_file(head[:4]):
         return "topaz"
     if _is_mobi(path):
         return "mobi"
     if _is_fb2_text(path):
         return "fb2"
+    if path.lower().endswith((".tar", ".cbt")) and _is_old_tar(path):    # "ustar" 표시가 없는 아주 옛 tar
+        return "tar"
     return None
+
+
+def _is_old_tar(path: str) -> bool:
+    import tarfile
+    try:
+        return tarfile.is_tarfile(path)
+    except Exception:
+        return False
 
 
 def _sniff_zip(path: str) -> str:
@@ -80,6 +100,9 @@ def _is_fb2_text(path: str) -> bool:
 READERS: dict[str, Callable[[str, ProgressFn, bool], List[ExtractedImage]]] = {
     "zip": archive_zip.extract_zip,
     "rar": archive_rar.extract_rar,
+    "7z": archive_7z.extract_7z,
+    "tar": archive_tar.extract_tar,
+    "djvu": book_djvu.extract_djvu,
     "epub": book_epub.extract_epub,
     "fb2": book_fb2.extract_fb2,
     "mobi": book_mobi.extract_mobi,
@@ -88,6 +111,9 @@ READERS: dict[str, Callable[[str, ProgressFn, bool], List[ExtractedImage]]] = {
 ESTIMATORS: dict[str, Callable[[str], int]] = {
     "zip": archive_zip.estimate_bytes,
     "rar": archive_rar.estimate_bytes,
+    "7z": archive_7z.estimate_bytes,
+    "tar": archive_tar.estimate_bytes,
+    "djvu": book_djvu.estimate_bytes,
     "epub": book_epub.estimate_bytes,
     "fb2": book_fb2.estimate_bytes,
     "mobi": book_mobi.estimate_bytes,
