@@ -17,10 +17,11 @@ import archive_zip
 import book_epub
 import book_fb2
 import book_mobi
+import book_topaz
 from book_common import BookError, ExtractedImage, ProgressFn, noop_progress
 
 # 사용자가 고를 수 있는 확장자(파일 선택 창 필터와 드래그앤드롭 판정에 쓴다)
-SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".epub", ".fb2", ".mobi", ".azw", ".azw3")
+SUPPORTED_EXTS = (".zip", ".cbz", ".rar", ".cbr", ".epub", ".fb2", ".mobi", ".azw", ".azw3", ".azw1", ".tpz")
 
 
 def is_supported(path: str) -> bool:
@@ -37,6 +38,8 @@ def _sniff(path: str) -> Optional[str]:
         return _sniff_zip(path)
     if head[:7] == b"Rar!\x1a\x07\x00" or head[:8] == b"Rar!\x1a\x07\x01\x00":   # RAR 4 / RAR 5
         return "rar"
+    if book_topaz.is_topaz_file(head[:4]):
+        return "topaz"
     if _is_mobi(path):
         return "mobi"
     if _is_fb2_text(path):
@@ -80,6 +83,7 @@ READERS: dict[str, Callable[[str, ProgressFn, bool], List[ExtractedImage]]] = {
     "epub": book_epub.extract_epub,
     "fb2": book_fb2.extract_fb2,
     "mobi": book_mobi.extract_mobi,
+    "topaz": book_topaz.extract_topaz,
 }
 ESTIMATORS: dict[str, Callable[[str], int]] = {
     "zip": archive_zip.estimate_bytes,
@@ -87,6 +91,7 @@ ESTIMATORS: dict[str, Callable[[str], int]] = {
     "epub": book_epub.estimate_bytes,
     "fb2": book_fb2.estimate_bytes,
     "mobi": book_mobi.estimate_bytes,
+    "topaz": book_topaz.estimate_bytes,
 }
 
 
