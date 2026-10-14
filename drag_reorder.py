@@ -85,9 +85,10 @@ class DragReorder:
             self.canvas.itemconfigure(items["rect"], fill=BG_DRAGGING)
         if not self.ghost_var.get():
             return
-        photo = self.model.photo_cache.get(iid)
+        photo = self.model.photo(iid)
         if photo is None:
             return
+        self._drag["photo"] = photo     # 드래그 중 스크롤로 이 타일이 화면을 벗어나도 유령 그림이 지워지지 않게 붙잡아 둔다
         try:
             self._drag["ghost"] = self.canvas.create_image(
                 self._drag["start_x"], self._drag["start_y"], image=photo, tags=("dragitem",)

@@ -83,8 +83,8 @@ class SettingsDialog:
 
         btns = ttk.Frame(frm)
         btns.grid(row=8, column=0, sticky="we", pady=(16, 0))
-        # 버그 리포트/활동 기록이 있는 폴더(오류가 없어도 기록을 보내고 싶을 때)
-        ttk.Button(btns, text="버그 리포트 폴더 열기", command=bug_report.open_log_folder).pack(side=tk.LEFT)
+        # 오류 창이 뜨지 않은 문제도 알릴 수 있게 지금 보고서를 만든다(실행 파일 위치에 저장)
+        ttk.Button(btns, text="버그 리포트 만들기", command=bug_report.make_report_now).pack(side=tk.LEFT)
         ttk.Button(btns, text="취소", command=win.destroy).pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(btns, text="저장", command=apply).pack(side=tk.RIGHT)
         win.bind("<Escape>", lambda e: win.destroy())

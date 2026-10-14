@@ -1,9 +1,11 @@
 """
 버그 리포트 - 프로그램이 오류로 멈추거나 갑자기 꺼졌을 때 "그때 무슨 일이 있었는지"를 파일로 남기고 알려 준다.
 
-남기는 것(모두 logs 폴더, activity_log.log_dir()):
-- 활동 기록 meltPDF_log.txt: 끌어다 놓기, 불러오기 작업의 시작/끝/중단, 목록 추가/삭제 등을 한 줄씩(activity_log.py).
-- 오류 보고서 bug_report_날짜_시각.txt: 오류가 나면 바로 만든다. 프로그램/윈도우/파이썬 버전, 그때의 상태(목록 장수,
+남기는 것:
+- 활동 기록 meltPDF_log.txt(%APPDATA%\\meltPDF\\logs - 보고서의 재료일 뿐 따로 찾을 필요 없음): 끌어다 놓기, 불러오기 작업의 시작/끝/중단, 목록 추가/삭제 등을 한 줄씩(activity_log.py).
+- [설정] -> [버그 리포트 만들기]: 오류 창이 없던 문제도 지금 상태 + 최근 기록 + 지난번 기록으로 보고서를 만든다.
+- 오류 보고서: 실행 파일(exe)이 있는 폴더에 meltpdf_버전_bug_report_yyyymmddHHMMSS.txt(예: meltpdf_0191_bug_report_20261014153012.txt).
+  거기에 쓸 수 없을 때만 활동 기록 폴더. 오류가 나면 바로 만든다. 프로그램/윈도우/파이썬 버전, 그때의 상태(목록 장수,
   진행 중인 불러오기 수, 창 크기 등), 오류 내용(어느 코드에서 났는지), 최근 활동 기록 수백 줄.
   - 화면 쪽 오류(버튼, 끌어다 놓기 처리 등): 보고서를 만들고 오류 창으로 알린다(프로그램은 계속 동작).
   - 일꾼 스레드 오류: 보고서를 만들고 화면 스레드에서 알린다.
@@ -29,7 +31,7 @@ from tkinter import messagebox
 from typing import Callable, Optional
 
 import activity_log
-from config import APP_TITLE, APP_VERSION
+from config import APP_NAME, APP_TITLE, APP_VERSION
 
 FATAL_NAME = "meltPDF_fatal.txt"
 MAX_FREEZE = 10.0           # 이 시간(초) 넘게 화면 스레드가 응답이 없으면 멈춤으로 보고 기록
@@ -119,12 +121,35 @@ def _state() -> str:
         return f"(상태를 읽지 못함: {e})"
 
 
+def report_name(d: Path, when: Optional[float] = None) -> str:
+    """보고서 파일 이름: 프로그램명_버전_bug_report_yyyymmddHHMMSS.txt (예: meltpdf_0191_bug_report_20261014153012.txt).
+    프로그램명은 소문자, 버전은 점을 뺀 숫자. 같은 초에 이미 있으면 끝에 _2, _3 ...을 붙인다."""
+    stem = f"{APP_NAME.lower()}_{APP_VERSION.replace('.', '')}_bug_report_{time.strftime('%Y%m%d%H%M%S', time.localtime(when))}"
+    name, n = f"{stem}.txt", 2
+    while (d / name).exists():
+        name, n = f"{stem}_{n}.txt", n + 1
+    return name
+
+
+def report_dir() -> Optional[Path]:
+    """버그 리포트를 만들 폴더: 실행 파일(exe, 개발 중에는 main.py)이 있는 폴더. 거기에 쓸 수 없을 때만(Program Files 등)
+    활동 기록 폴더(%APPDATA%\\meltPDF\\logs) - 이때도 알림 창에 실제 위치를 보여 준다."""
+    d = activity_log.app_dir()
+    try:
+        probe = d / f".{APP_NAME.lower()}_write_test"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+        return d
+    except OSError:
+        return activity_log.log_dir()
+
+
 def write_report(kind: str, detail: str, include_recent: bool = True, extra: str = "") -> Optional[Path]:
     """보고서 파일을 만들고 경로를 돌려준다(실패하면 None)."""
-    d = activity_log.log_dir()
+    d = report_dir()
     if d is None:
         return None
-    name = time.strftime("bug_report_%Y%m%d_%H%M%S") + f"_{int(time.time() * 1000) % 1000:03d}.txt"
+    name = report_name(d)
     parts = [f"meltPDF 버그 리포트 - {kind}", f"만든 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}"]
     parts += _env_lines()[1:2]
     parts += ["", "[그때의 상태]", _state() if _root is not None else "(창이 뜨기 전)", "", "[내용]", detail.rstrip()]
@@ -141,23 +166,35 @@ def write_report(kind: str, detail: str, include_recent: bool = True, extra: str
         return None
 
 
-def open_log_folder() -> None:
-    """[설정]의 [버그 리포트 폴더 열기]: 기록 폴더를 연다(오류가 없어도 활동 기록을 보내고 싶을 때)."""
-    d = activity_log.log_dir()
-    if d is None:
-        messagebox.showinfo(APP_TITLE, "기록 폴더를 만들지 못했습니다.")
+def make_report_now() -> None:
+    """[설정]의 [버그 리포트 만들기]: 오류 창이 뜨지 않은 문제(이상한 동작, 느림 등)도 알릴 수 있게, 지금 상태와
+    이번 실행의 최근 기록 + 지난번 실행의 기록으로 보고서를 실행 파일 위치에 만든다."""
+    activity_log.log("[버그 리포트 만들기] 누름")
+    extra = ""
+    prev = activity_log.previous
+    if prev is not None:
+        try:
+            lines = prev.read_text(encoding="utf-8", errors="replace").rstrip().splitlines()
+            extra = "[지난번 실행의 활동 기록]\n" + "\n".join(lines[-3000:])
+        except OSError:
+            pass
+    path = write_report("사용자가 만든 보고서", "[설정] -> [버그 리포트 만들기]로 만든 보고서입니다(오류가 나지 않은 상태).",
+                        extra=extra)
+    if path is None:
+        messagebox.showerror(APP_TITLE, "버그 리포트를 만들지 못했습니다.")
         return
-    activity_log.log("[버그 리포트 폴더 열기]")
-    open_folder(d / activity_log.LOG_NAME)
+    if messagebox.askyesno(APP_TITLE, f"버그 리포트를 만들었습니다:\n{path}\n\n저장한 폴더를 열까요?"):
+        open_folder(path)
 
 
 def _prune(keep: int = 20) -> None:
     """오래된 버그 리포트는 지운다(최근 keep개만 둔다)."""
-    d = activity_log.log_dir()
+    d = report_dir()
     if d is None:
         return
     try:
-        reports = sorted(d.glob("bug_report_*.txt"))
+        # 이 프로그램이 만든 이름(프로그램명_버전_bug_report_...)만, 만든 순서대로(실행 파일 폴더의 다른 파일은 건드리지 않음)
+        reports = sorted(d.glob(f"{APP_NAME.lower()}_*_bug_report_*.txt"), key=lambda p: p.stat().st_mtime)
         for old in reports[:-keep]:
             old.unlink()
     except OSError:
@@ -275,8 +312,28 @@ def _collect_previous(prev_fatal: str) -> None:
     _pending_previous_report = write_report("지난번 실행의 비정상 종료", detail, include_recent=False, extra=extra)
 
 
+def crash_notice_text(path: Optional[Path]) -> str:
+    """다음 실행 때 띄우는 알림 글(사용자 지정 형식): 크래시 감지. [보고서 파일 이름]이 생성되었습니다. + 파일 위치."""
+    if path is None:
+        return "크래시 감지. 버그 리포트를 만들지 못했습니다."
+    return f"크래시 감지. {path.name}이 생성되었습니다.\n\n위치: {path.parent}\n\n이 폴더를 열까요?"
+
+
 def _announce_previous():
-    _tell("지난번 실행이 비정상적으로 끝났습니다(오류로 꺼졌거나 강제 종료).", _pending_previous_report)
+    """(화면 스레드) 지난번 실행이 비정상 종료였을 때: 보고서 이름과 위치를 알리고 폴더를 열지 묻는다."""
+    global _showing
+    path = _pending_previous_report
+    activity_log.log("지난번 비정상 종료 알림 표시")
+    _showing = True
+    try:
+        if path is None:
+            messagebox.showwarning(APP_TITLE, crash_notice_text(None))
+        elif messagebox.askyesno(APP_TITLE, crash_notice_text(path), icon="warning"):
+            open_folder(path)
+    except Exception:
+        pass
+    finally:
+        _showing = False
 
 
 # ---------------------------------------------------------- 화면 멈춤 감시

@@ -34,7 +34,8 @@ previous: Optional[Path] = None    # 이번에 켤 때 옮겨 둔 지난번 기�
 _t0 = time.monotonic()
 
 
-def _app_dir() -> Path:
+def app_dir() -> Path:
+    """실행 파일(exe)이 있는 폴더, 개발 중에는 이 소스 파일이 있는 폴더."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent
@@ -46,7 +47,7 @@ def _candidate_dirs() -> List[Path]:
         base = Path(os.environ.get("APPDATA") or Path.home())
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    return [base / "meltPDF" / "logs", _app_dir() / "logs"]
+    return [base / "meltPDF" / "logs", app_dir() / "logs"]
 
 
 def log_dir() -> Optional[Path]:

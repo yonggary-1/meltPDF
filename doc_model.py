@@ -105,6 +105,17 @@ class DocModel:
     def _make_photo(item: pdf_core.PageItem) -> ImageTk.PhotoImage:
         return ImageTk.PhotoImage(Image.open(io.BytesIO(item.thumb_bytes)))
 
+    def photo(self, iid: str) -> Optional[ImageTk.PhotoImage]:
+        """(화면 스레드) 항목의 썸네일 화면 그림. 필요할 때 만든다. 화면에 보이는 타일 것만 들고 있다
+        (visible_thumbs.py가 벗어난 것은 release_photo로 놓는다 - 수천 장을 모두 만들면 윈도우 그래픽 자원이 바닥남)."""
+        p = self.photo_cache.get(iid)
+        if p is None and iid in self.items:
+            p = self.photo_cache[iid] = self._make_photo(self.items[iid])
+        return p
+
+    def release_photo(self, iid: str):
+        self.photo_cache.pop(iid, None)
+
     def add(self, items, before: Optional[str] = None):
         """항목을 넣는다. before가 목록에 있는 항목 id면 그 항목 바로 앞에, 아니면(None, 이미 지워진 항목) 끝에 넣는다
         (파일을 목록 중간에 끌어다 놓은 경우 - file_drop_mark.py. 같은 before로 여러 번 넣으면 넣은 순서대로 이어진다).
@@ -120,7 +131,6 @@ class DocModel:
         new_ids = []
         for it in items:
             self.items[it.id] = it
-            self.photo_cache[it.id] = self._make_photo(it)
             new_ids.append(it.id)
         self.order[pos:pos] = new_ids
         activity_log.log(f"목록에 {len(new_ids)}장 넣음 (자리 {pos}{'=끝' if pos + len(new_ids) == len(self.order) else ''}, 전체 {len(self.order)})")

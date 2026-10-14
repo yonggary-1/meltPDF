@@ -20,3 +20,4 @@ settings.json
 !tools/UnRAR.exe
 !tools/ddjvu.exe
 !tools/djvused.exe
+meltpdf_*_bug_report_*.txt

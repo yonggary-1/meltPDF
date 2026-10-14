@@ -42,7 +42,9 @@ class TileView:
         self.canvas = tk.Canvas(self.frame, highlightthickness=0, bg=BG_NORMAL, takefocus=1)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.vsb = ttk.Scrollbar(self.frame, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.vsb.set)
+        # 스크롤할 때마다 알릴 함수들(보이는 타일에만 썸네일 그림 붙이기 - visible_thumbs.py)
+        self.scroll_hooks: List[Callable[[], None]] = []
+        self.canvas.configure(yscrollcommand=self._on_yscroll)
         # 스크롤바를 캔버스 "옆"(pack)이 아니라 캔버스 "위"에 겹쳐서 고정 배치한다. 캔버스가
         # 창 오른쪽 끝까지 차지해야 드래그 중 표시(유령 썸네일)도 끝까지 갈 수 있다.
         # 스크롤바는 한 번 놓은 뒤 움직이지 않으므로 "움직이는 위젯의 잔상" 문제와 무관하다.
@@ -119,6 +121,11 @@ class TileView:
         return order[idx]
 
     # ---------------------------------------------------------- 스크롤 / 창 크기
+    def _on_yscroll(self, first, last):
+        self.vsb.set(first, last)
+        for fn in self.scroll_hooks:
+            fn()
+
     def _on_canvas_resize(self, event):
         cols = self.cols()
         if self.view_mode_var.get() == "grid":
@@ -195,11 +202,11 @@ class TileView:
                 continue
             x, y, w, h = self.tile_rect(idx)
             self.canvas.coords(items["rect"], x, y, x + w, y + h)
+            if items["img"] is not None:
+                self.canvas.coords(items["img"], *self.img_pos(idx))
             if mode == "grid":
-                self.canvas.coords(items["img"], x + w / 2, y + 4 + (THUMB_MAX + 8) / 2)
                 self.canvas.coords(items["text"], x + w / 2, y + THUMB_MAX + 14)
             else:
-                self.canvas.coords(items["img"], x + 6 + (THUMB_MAX + 8) / 2, y + h / 2)
                 tx = x + THUMB_MAX + 24
                 self.canvas.coords(items["text"], tx, y + h / 2 - 10)
                 self.canvas.coords(items["meta"], tx, y + h / 2 + 12)
@@ -209,9 +216,17 @@ class TileView:
         self.update_scrollregion()
         self._run_hooks()
 
+    def img_pos(self, idx: int) -> tuple:
+        """idx번째 타일에서 썸네일 그림의 가운데 좌표."""
+        x, y, w, h = self.tile_rect(idx)
+        if self.view_mode_var.get() == "grid":
+            return (x + w / 2, y + 4 + (THUMB_MAX + 8) / 2)
+        return (x + 6 + (THUMB_MAX + 8) / 2, y + h / 2)
+
     def _draw_tile(self, iid: str, idx: int):
+        """타일의 테두리와 글자만 그린다. 썸네일 그림은 화면에 보이는 타일에만 visible_thumbs.py가 붙인다
+        (수천 장의 썸네일을 모두 화면 그림으로 만들면 윈도우 그래픽 자원/메모리가 바닥나 프로그램이 꺼졌다 - v0.19.2)."""
         item = self.model.items[iid]
-        photo = self.model.photo_cache[iid]
         bg = self._tile_bg(iid)
         cover_mark = "★ " if iid == self.model.cover_id else ""
         x, y, w, h = self.tile_rect(idx)
@@ -222,17 +237,14 @@ class TileView:
                                             outline=DAMAGED_OUTLINE if damaged else "#9a9a9a",
                                             width=DAMAGED_OUTLINE_W if damaged else 1, tags=tag)}
 
+        items["img"] = None
         if self.view_mode_var.get() == "grid":
-            items["img"] = c.create_image(x + w / 2, y + 4 + (THUMB_MAX + 8) / 2,
-                                          image=photo, tags=tag)
             items["text"] = c.create_text(
                 x + w / 2, y + THUMB_MAX + 14, anchor="n", justify="center",
                 text=self._short_name(cover_mark + item.label, 22),
                 font=("", 9), width=w - 8, tags=tag,
             )
         else:
-            items["img"] = c.create_image(x + 6 + (THUMB_MAX + 8) / 2, y + h / 2,
-                                          image=photo, tags=tag)
             kind_label = ("이미지" if item.kind == "image"
                           else f"PDF({Path(item.origin_pdf).name} p{item.origin_page_no})")
             tx = x + THUMB_MAX + 24
