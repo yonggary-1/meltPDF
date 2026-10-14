@@ -22,9 +22,10 @@ from tkinter import ttk
 from typing import Callable, Dict, List, Optional
 
 import pdf_core
+import tile_layout
 from config import (
-    BG_COVER, BG_DRAGGING, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_X, GRID_PITCH_Y, LIST_PITCH_Y,
-    LIST_TILE_H, MARGIN, THUMB_MAX, TILE_H, TILE_W,
+    BG_COVER, BG_DRAGGING, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_Y, LIST_PITCH_Y,
+    LIST_TILE_H, THUMB_MAX, TILE_H, TILE_W,
 )
 from doc_model import DocModel
 
@@ -39,6 +40,7 @@ class TileView:
         self._drawn_key = None              # 지금 그려 둔 범위/배치(스크롤 때 바뀌었는지 보려고)
         self._sync_pending = False
         self._region = None                 # 마지막으로 설정한 스크롤 영역
+        self._grid_cache = None             # (가용 폭, 타일형 배치) - 폭이 바뀔 때만 다시 계산
         self.dragging_iid: Optional[str] = None   # 끌고 있는 타일(회색) - drag_reorder.py가 정한다
         self._last_cols: Optional[int] = None
         # 타일을 다시 그린 직후에 불려야 하는 함수들(예: 드래그 표시를 맨 위로 올리기).
@@ -68,19 +70,29 @@ class TileView:
 
     # ---------------------------------------------------------- 배치 계산
     def layout_width(self) -> int:
-        """타일을 배치할 때 쓸 실제 가용 폭. 스크롤바가 캔버스 위에 겹쳐 있으므로,
-        타일이 스크롤바 밑에 깔리지 않도록 스크롤바 폭과 좌우 여백을 뺀다."""
+        """타일을 배치할 실제 가용 폭: 캔버스 폭에서 캔버스 위에 겹쳐 놓은 스크롤바 폭을 뺀 것(창 왼쪽 끝 ~ 스크롤바 왼쪽)."""
         w = self.canvas.winfo_width()
         if not w or w <= 1:
-            return GRID_PITCH_X
+            return TILE_W + 2 * tile_layout.EDGE_MIN
         try:
             sb = self.vsb.winfo_reqwidth() or 16
         except tk.TclError:
             sb = 16
-        return max(GRID_PITCH_X, w - sb - MARGIN)
+        return max(TILE_W, w - sb)
+
+    def grid(self) -> tile_layout.GridLayout:
+        """타일형 배치(칸 수, 첫 칸 x, 칸 사이 간격) - 가운데 정렬, 가장자리는 칸 사이의 두 배 이상(tile_layout.py)."""
+        w = self.layout_width()
+        if self._grid_cache is None or self._grid_cache[0] != w:
+            self._grid_cache = (w, tile_layout.grid(w))
+        return self._grid_cache[1]
+
+    def top(self) -> float:
+        """첫 줄의 위쪽 y(위 가장자리 여백)."""
+        return tile_layout.EDGE_MIN if self.view_mode_var.get() == "grid" else tile_layout.LIST_EDGE
 
     def cols(self) -> int:
-        return max(1, self.layout_width() // GRID_PITCH_X)
+        return self.grid().cols
 
     def content_height(self) -> int:
         n = len(self.model.order)
@@ -88,8 +100,8 @@ class TileView:
             return 0
         if self.view_mode_var.get() == "grid":
             rows = (n + self.cols() - 1) // self.cols()
-            return MARGIN * 2 + rows * GRID_PITCH_Y
-        return MARGIN * 2 + n * LIST_PITCH_Y
+            return int(tile_layout.EDGE_MIN * 2 + rows * GRID_PITCH_Y - (GRID_PITCH_Y - TILE_H))
+        return int(tile_layout.LIST_EDGE * 2 + n * LIST_PITCH_Y - (LIST_PITCH_Y - LIST_TILE_H))
 
     def update_scrollregion(self):
         """스크롤 영역은 타일 내용만 기준으로 직접 계산한다. bbox("all")을 쓰면 드래그 중에만
@@ -103,10 +115,12 @@ class TileView:
         """idx번째 자리의 (x, y, 폭, 높이). 위젯 크기를 재지 않고 코드가 직접 계산하므로
         드래그 중이든 아니든 항상 정확하다."""
         if self.view_mode_var.get() == "grid":
-            r, c = divmod(idx, self.cols())
-            return (MARGIN + c * GRID_PITCH_X, MARGIN + r * GRID_PITCH_Y, TILE_W, TILE_H)
-        w = max(TILE_W, self.layout_width() - MARGIN * 2)
-        return (MARGIN, MARGIN + idx * LIST_PITCH_Y, w, LIST_TILE_H)
+            g = self.grid()
+            r, c = divmod(idx, g.cols)
+            return (round(g.left + c * g.step), tile_layout.EDGE_MIN + r * GRID_PITCH_Y, TILE_W, TILE_H)
+        edge = tile_layout.LIST_EDGE
+        w = max(TILE_W, self.layout_width() - edge * 2)
+        return (edge, edge + idx * LIST_PITCH_Y, w, LIST_TILE_H)
 
     def tile_at(self, cx: float, cy: float) -> Optional[str]:
         """캔버스 좌표에 있는 타일의 id. 빈 자리를 누르면 None."""
@@ -114,14 +128,16 @@ class TileView:
         if not order:
             return None
         if self.view_mode_var.get() == "grid":
-            cols = self.cols()
-            col = int((cx - MARGIN) // GRID_PITCH_X)
-            row = int((cy - MARGIN) // GRID_PITCH_Y)
-            if col < 0 or col >= cols or row < 0:
+            g = self.grid()
+            col = int((cx - g.left) // g.step)
+            row = int((cy - tile_layout.EDGE_MIN) // GRID_PITCH_Y)
+            if cx < g.left or col >= g.cols or row < 0 or cy < tile_layout.EDGE_MIN:
                 return None
-            idx = row * cols + col
+            idx = row * g.cols + col
         else:
-            idx = int((cy - MARGIN) // LIST_PITCH_Y)
+            if cy < tile_layout.LIST_EDGE:
+                return None
+            idx = int((cy - tile_layout.LIST_EDGE) // LIST_PITCH_Y)
         if idx < 0 or idx >= len(order):
             return None
         x, y, w, h = self.tile_rect(idx)
@@ -135,10 +151,10 @@ class TileView:
         self._schedule_sync()          # 스크롤하면 그릴 범위가 바뀐다
 
     def _on_canvas_resize(self, event):
-        cols = self.cols()
+        width = self.layout_width()
         if self.view_mode_var.get() == "grid":
-            if cols != self._last_cols:
-                self._last_cols = cols
+            if width != self._last_cols:       # 가운데 정렬이라 폭이 바뀌면 칸 위치가 모두 바뀐다(v0.19.4)
+                self._last_cols = width
                 self.reflow()
             else:
                 self._schedule_sync()  # 높이만 바뀌면 그릴 범위만 다시 본다
@@ -168,13 +184,14 @@ class TileView:
         h = max(c.winfo_height(), 1)
         top = c.canvasy(0) - h * WINDOW_MARGIN
         bottom = c.canvasy(h) + h * WINDOW_MARGIN
+        y0 = self.top()
         if self.view_mode_var.get() == "grid":
             cols = self.cols()
-            r0 = max(int((top - MARGIN) // GRID_PITCH_Y), 0)
-            r1 = max(int((bottom - MARGIN) // GRID_PITCH_Y) + 1, 0)
+            r0 = max(int((top - y0) // GRID_PITCH_Y), 0)
+            r1 = max(int((bottom - y0) // GRID_PITCH_Y) + 1, 0)
             return range(min(r0 * cols, n), min(r1 * cols, n))
-        i0 = max(int((top - MARGIN) // LIST_PITCH_Y), 0)
-        i1 = max(int((bottom - MARGIN) // LIST_PITCH_Y) + 1, 0)
+        i0 = max(int((top - y0) // LIST_PITCH_Y), 0)
+        i1 = max(int((bottom - y0) // LIST_PITCH_Y) + 1, 0)
         return range(min(i0, n), min(i1, n))
 
     def _schedule_sync(self):
