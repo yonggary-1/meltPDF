@@ -60,19 +60,39 @@ class PageItem:
     page_images: Optional[dict] = None    # kind='pdf_page'일 때 그 쪽에 쓰인 이미지들 {xref: 저장 크기(바이트)} - 용량 표시용(size_info.py)
 
 
-def _make_thumb_bytes(im: Image.Image) -> bytes:
-    thumb = im.copy()
-    thumb.thumbnail((THUMB_MAX, THUMB_MAX))
+def _make_thumb_bytes(im: Image.Image, in_place: bool = False) -> bytes:
+    """화면 목록용 작은 썸네일(PNG). in_place=True면 im을 직접 줄인다(복사하지 않아 빠름 - 부르는 쪽이 im을 더 쓰지 않을 때만).
+
+    빠르게 만드는 방법(v0.18.0): JPEG는 draft로 처음부터 1/2~1/8 크기로 풀고(원본 전체를 풀지 않음), 줄일 때는 reducing_gap으로
+    정수배 축소를 먼저 한다. 흑백(1비트)과 팔레트 그림은 회색/RGBA로 바꾼 뒤 줄여 계단 현상을 줄인다. PNG 압축은 빠른 단계(1)."""
+    thumb = im if in_place else im.copy()
+    if in_place and getattr(thumb, "format", None) == "JPEG":
+        try:
+            thumb.draft(thumb.mode, (THUMB_MAX * 2, THUMB_MAX * 2))
+        except Exception:
+            pass
+    if thumb.mode == "1":
+        thumb = thumb.convert("L")
+    elif thumb.mode == "P":
+        thumb = thumb.convert("RGBA")
+    elif thumb.mode in ("I", "F") or thumb.mode.startswith("I;"):
+        # 16비트 흑백 PNG/TIFF 등(스캔본에 있음): 그대로는 줄이기가 안 되므로(예전에는 오류가 나 "손상된 이미지"로 잘못 표시됨)
+        # 8비트 회색으로 바꾼다. 값이 255를 넘으면 16비트 범위로 보고 비율을 맞춘다.
+        t = thumb if thumb.mode == "F" else thumb.convert("I")
+        hi = t.getextrema()[1] or 0
+        scale = 255.0 / (65535.0 if hi > 255 else 255.0)
+        thumb = t.point(lambda v: v * scale).convert("L")
+    thumb.thumbnail((THUMB_MAX, THUMB_MAX), reducing_gap=2.0)
     buf = io.BytesIO()
     # 썸네일은 화면 표시용이므로 RGB로 통일해서 저장(투명 배경은 흰색으로)
-    if thumb.mode in ("RGBA", "LA", "P"):
+    if thumb.mode in ("RGBA", "LA", "PA"):
         bg = Image.new("RGB", thumb.size, (255, 255, 255))
         rgba = thumb.convert("RGBA")
         bg.paste(rgba, mask=rgba.split()[-1])
         thumb = bg
     else:
         thumb = thumb.convert("RGB")
-    thumb.save(buf, format="PNG")
+    thumb.save(buf, format="PNG", compress_level=1)
     return buf.getvalue()
 
 
@@ -97,12 +117,12 @@ def load_image_item_from_bytes(data: bytes, label: str) -> PageItem:
 def _build_image_item(im: Image.Image, label: str, source_path: Optional[str],
                       original_bytes: Optional[bytes]) -> PageItem:
     orientation = im.getexif().get(0x0112, 1)  # 1 = normal
-    transposed = ImageOps.exif_transpose(im)
-    width, height = transposed.size
-    thumb_bytes = _make_thumb_bytes(transposed)
 
     if orientation in (1, None):
-        # 회전 필요 없음 -> 원본 그대로 사용(완전 무손실, 재인코딩 없음)
+        # 회전 필요 없음 -> 원본 그대로 사용(완전 무손실, 재인코딩 없음). 크기는 머리에서 읽고, 썸네일만 작게 풀어 만든다
+        # (원본 전체를 풀지 않음 - 내보내기는 원본 파일/바이트를 그대로 쓰므로 결과와 무관).
+        width, height = im.size
+        thumb_bytes = _make_thumb_bytes(im, in_place=True)
         return PageItem(
             id=str(uuid.uuid4()),
             label=label,
@@ -114,6 +134,9 @@ def _build_image_item(im: Image.Image, label: str, source_path: Optional[str],
             raster_bytes=original_bytes,
         )
     # 회전 반영한 픽셀을 PNG로 저장(무손실 포맷, 화질 저하 없음)
+    transposed = ImageOps.exif_transpose(im)
+    width, height = transposed.size
+    thumb_bytes = _make_thumb_bytes(transposed)
     buf = io.BytesIO()
     save_im = transposed.convert("RGB") if transposed.mode in ("P",) else transposed
     save_im.save(buf, format="PNG")

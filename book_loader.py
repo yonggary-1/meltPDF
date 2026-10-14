@@ -18,6 +18,8 @@ import book_import
 import pdf_core
 import storage_policy
 import damaged_image
+import incremental_add
+import parallel_load
 import load_report
 from load_report import LoadResult
 from book_common import BookError
@@ -91,27 +93,28 @@ class BookLoader:
                 errors.append(f"{name}: 이미지가 들어 있지 않습니다.")
             notes.extend(getattr(extracted, "notes", ()))      # 참고 안내(예: 끝이 잘린 zip을 복구해 읽음)
             errors.extend(getattr(extracted, "warnings", ()))   # 목록에 못 넣고 뺀 것에 대한 설명(손상된 이미지 안내는 아래에서 따로)
-            for n, ex in enumerate(extracted, start=1):
-                if self.jobs.cancelled():          # [중단]: 그때까지 만든 항목만 넣는다
-                    cancelled = True
-                    break
-                try:
-                    item = self._load_one(ex)
-                    item.damaged = ex.damaged          # 압축 파일의 체크섬과 맞지 않던 이미지 - 타일에 빨간 테두리
+            feed = incremental_add.Feeder(self.root, self.model, self.status,
+                                          before_first=lambda m=meta: self.model.offer_meta(m))
+            total = len(extracted)
+            n = 0
+            try:
+                # 여러 장을 동시에 썸네일로 만들고, 파일 안의 순서대로 몇십 장씩 목록에 먼저 넣는다
+                for ex, item, err in parallel_load.ordered(self._load_or_damaged, list(extracted),
+                                                           should_stop=self.jobs.cancelled):
+                    n += 1
                     ex.data = None                 # 메모리 사본을 일찍 놓아준다(항목이 필요한 만큼만 들고 있음)
-                    items.append(item)
-                except Exception as e:
-                    # 정상으로는 못 읽는 이미지: 읽을 수 있는 부분이라도 불러온다(압축 파일 안에서 깨진 이미지 등)
-                    try:
-                        bad = damaged_image.load_damaged_item(ex.label, data=ex.data, path=ex.path)
-                        bad.damaged = True
-                        items.append(bad)
-                    except Exception:
-                        errors.append(f"{ex.label}: {damaged_image.unreadable_reason(e)}")
-                    ex.data = None
-                if n % 5 == 0:
-                    self.root.after(0, lambda n=n, t=len(extracted): self.status.set(
-                        f"{name} 썸네일 만드는 중... {n}/{t}"))
+                    if err is not None:
+                        errors.append(f"{ex.label}: {damaged_image.unreadable_reason(err)}")
+                    else:
+                        items.append(item)
+                        feed.progress_text = f"{name} 썸네일 만드는 중... {n}/{total}"
+                        feed.push(item)
+                    if n % 5 == 0:
+                        self.root.after(0, lambda n=n, t=total: self.status.set(
+                            f"{name} 썸네일 만드는 중... {n}/{t}"))
+            finally:
+                feed.finish()
+            cancelled = n < total and self.jobs.cancelled()   # [중단]: 그때까지 만든 항목만 넣는다
         except BookError as e:
             errors.append(f"{name}: {e}")
         if cancelled:
@@ -120,6 +123,22 @@ class BookLoader:
                        meta if items else None)           # 이미지를 하나도 넣지 못한 파일의 서지 정보는 쓰지 않는다
         r.cancelled = cancelled
         return r
+
+    @classmethod
+    def _load_or_damaged(cls, ex) -> pdf_core.PageItem:
+        """(동시 처리 스레드) 꺼낸 이미지 하나 -> 목록 항목. 정상으로 못 읽으면(압축 파일 안에서 깨진 이미지 등)
+        읽을 수 있는 부분이라도 불러온다. 그것도 안 되면 원래 오류를 낸다."""
+        try:
+            item = cls._load_one(ex)
+            item.damaged = ex.damaged          # 압축 파일의 체크섬과 맞지 않던 이미지 - 타일에 빨간 테두리
+            return item
+        except Exception as e:
+            try:
+                bad = damaged_image.load_damaged_item(ex.label, data=ex.data, path=ex.path)
+            except Exception:
+                raise e
+            bad.damaged = True
+            return bad
 
     @staticmethod
     def _load_one(ex) -> pdf_core.PageItem:
@@ -137,8 +156,10 @@ class BookLoader:
             self.status.refresh()
             return
         result = result if result else LoadResult(errors=[f"예상치 못한 오류: {error}"])
-        self.model.offer_meta(result.meta)
-        self.model.add(result.items)     # 완료 시 화면과 상태 표시줄이 모델 알림으로 갱신된다
+        # 항목과 서지 정보는 읽는 동안 이미 목록에 넣었다(incremental_add - 서지 정보는 첫 묶음과 함께).
+        self.status.refresh()
+        if result.cancelled:
+            self.status.set(f"불러오기를 중단했습니다. ({len(result.items)}장 불러옴)")
         load_report.show(result)
 
 

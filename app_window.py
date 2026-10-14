@@ -20,6 +20,7 @@ from image_export_dialog import ImageExporter
 from image_viewer import ImageViewer
 from key_nav import KeyNav
 from load_queue import LoadQueue
+from load_stop import LoadStopButton
 from meta_dialog import MetaDialog
 from page_actions import PageActions
 from ram_meter import RamMeter
@@ -114,6 +115,8 @@ class App:
         # 메모리 미터는 윗줄(상태 문구 줄)의 오른쪽 끝에 둔다 - 아랫줄에 내보내기 버튼이 셋이라 좁은 창에서 잘리지 않게.
         self.ram_meter = RamMeter(self.status.top_row)
         self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0), before=self.status.label)
+        # 불러오는 중(목록에 이미 이미지가 보일 때) [불러오기 중단] - 메모리 미터 왼쪽
+        self.load_stop = LoadStopButton(self.status.top_row, self.model, self.jobs, before=self.status.label)
         # pack을 RIGHT로 하면 먼저 둔 것이 맨 오른쪽: PDF로 내보내기, 전체 이미지 내보내기, 선택된 이미지 내보내기 순
         self.exporter.make_button(bar).pack(side=tk.RIGHT)
         self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))

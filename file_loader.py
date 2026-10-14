@@ -13,7 +13,9 @@ import book_import
 import damaged_image
 import folder_ask
 import folder_pick
+import incremental_add
 import load_report
+import parallel_load
 import pdf_core
 import pdf_meta
 from config import APP_TITLE, DND_FILES, HAS_DND
@@ -165,36 +167,40 @@ class FileLoader:
         self.jobs.submit(work, done)
 
     def _load_paths(self, paths, labels) -> LoadResult:
-        """(일꾼 스레드) 이미지 파일들을 목록 항목으로 읽는다. 진행 상황은 상태 표시줄에 "n/전체"로 알린다."""
+        """(일꾼 스레드) 이미지 파일들을 목록 항목으로 읽는다. 여러 장을 동시에 읽고(parallel_load), 읽은 순서가 아니라
+        넣은 순서대로 몇십 장씩 목록에 먼저 넣는다(incremental_add). 진행 상황은 상태 표시줄에 "n/전체"로 알린다.
+        돌려주는 결과의 items는 이미 목록에 들어간 것이다(완료 처리에서는 다시 넣지 않고 개수와 알림에만 쓴다)."""
         result = LoadResult()
         total = len(paths)
-        for n, (p, label) in enumerate(zip(paths, labels), start=1):
-            if self.jobs.cancelled():               # [중단]: 그때까지 읽은 이미지만 넣는다
-                result.cancelled = True
-                break
-            try:
-                item = pdf_core.load_image_item(p)
-                item.label = label
-                result.items.append(item)
-            except Exception as e:
-                # 정상으로는 못 읽는 이미지(잘렸거나 일부가 깨짐): 읽을 수 있는 부분만이라도 불러온다
-                try:
-                    bad = damaged_image.load_damaged_item(label, path=p)
-                    bad.damaged = True
-                    result.items.append(bad)
-                    result.damaged.append(label)
-                except Exception:
-                    result.errors.append(f"{label}: {damaged_image.unreadable_reason(e)}")
-            if n % 10 == 0 or n == total:
-                self.root.after(0, lambda n=n: self.status.set(f"이미지 불러오는 중... {n}/{total}"))
+        feed = incremental_add.Feeder(self.root, self.model, self.status)
+        jobs = list(zip(paths, labels))
+        n = 0
+        try:
+            for (_p, label), got, err in parallel_load.ordered(_read_one, jobs, should_stop=self.jobs.cancelled):
+                n += 1
+                if err is not None:
+                    result.errors.append(f"{label}: {damaged_image.unreadable_reason(err)}")
+                else:
+                    item, damaged = got
+                    result.items.append(item)
+                    if damaged:
+                        result.damaged.append(label)
+                    feed.progress_text = f"이미지 불러오는 중... {n}/{total}"
+                    feed.push(item)
+                if n % 10 == 0 or n == total:
+                    self.root.after(0, lambda n=n: self.status.set(f"이미지 불러오는 중... {n}/{total}"))
+        finally:
+            feed.finish()
+        if n < total and self.jobs.cancelled():         # [중단]: 그때까지 읽은 이미지만 넣는다
+            result.cancelled = True
         return result
 
     def _done_loading(self, result, error):
         if isinstance(error, LoadCancelled):         # [중단]으로 시작도 하지 않은 작업
             self.status.refresh()
             return
-        result = result if result else LoadResult(errors=[str(error)])
-        self.model.add(result.items)
+        if result is None:                           # 예상치 못한 오류(읽은 만큼은 이미 목록에 들어가 있다)
+            result = LoadResult(errors=[str(error)])
         self.status.refresh()
         if result.cancelled:
             self.status.set(f"불러오기를 중단했습니다. ({len(result.items)}장 불러옴)")
@@ -218,8 +224,26 @@ class FileLoader:
                 items, meta = result
                 self.model.offer_meta(meta)        # PDF의 서지 정보(문서 정보/XMP)
                 self.model.add(items)
+                self.status.refresh()                  # 쪽이 하나도 없어 목록 알림이 없을 때도 "PDF 여는 중"을 지운다
 
         self.jobs.submit(work, done)
+
+
+def _read_one(job):
+    """(동시 처리 스레드) 이미지 한 장 읽기 -> (항목, 손상 여부). 정상으로 못 읽으면(잘렸거나 일부가 깨짐)
+    읽을 수 있는 부분만이라도 불러온다. 그것도 안 되면 원래 오류를 낸다."""
+    path, label = job
+    try:
+        item = pdf_core.load_image_item(path)
+        item.label = label
+        return item, False
+    except Exception as e:
+        try:
+            bad = damaged_image.load_damaged_item(label, path=path)
+        except Exception:
+            raise e
+        bad.damaged = True
+        return bad, True
 
 
 def _has_subfolders(folder: str) -> bool:

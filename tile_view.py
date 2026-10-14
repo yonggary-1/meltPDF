@@ -164,7 +164,17 @@ class TileView:
         return f"{item.width}x{item.height}pt (원본 그대로)"
 
     def rebuild(self):
-        """타일을 전부 지우고 다시 그린다 (항목 추가/삭제, 보기모드 전환, 표지 변경 등)."""
+        """타일을 전부 지우고 다시 그린다 (항목 추가/삭제, 보기모드 전환, 표지 변경 등).
+        끝에 항목만 붙은 경우(불러오는 중의 묶음 추가)에는 이미 그린 타일은 두고 새 타일만 그린다."""
+        start = self.model.appended_from
+        order = self.model.order
+        if (start is not None and start == len(self.tile_items)
+                and all(iid in self.tile_items for iid in order[:start])):
+            for idx in range(start, len(order)):
+                self._draw_tile(order[idx], idx)
+            self.update_scrollregion()
+            self._run_hooks()
+            return
         self.canvas.delete("tile")
         self.tile_items = {}
         for idx, iid in enumerate(self.model.order):
