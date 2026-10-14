@@ -19,10 +19,31 @@ class LoadQueue:
         self._jobs: "queue.Queue[Tuple[Callable[[], Any], Callable[[Any, Optional[BaseException]], None]]]" = queue.Queue()
         self._lock = threading.Lock()     # 대기열이 비는 순간과 새 작업이 들어오는 순간의 경합 방지
         self._running = False
+        self.pending = 0                  # 넣었지만 아직 결과(on_done)까지 끝나지 않은 작업 수 - 화면 스레드에서만 바꾼다
+        self._busy_listeners = []         # 바쁨/한가함이 바뀔 때 부를 함수들(빈 목록 안내의 "이미지 불러오는 중..." 등)
+
+    def on_busy_change(self, fn: Callable[[bool], None]):
+        self._busy_listeners.append(fn)
+
+    def _set_pending(self, n: int):
+        was = self.pending > 0
+        self.pending = max(0, n)
+        if was != (self.pending > 0):
+            for fn in list(self._busy_listeners):
+                fn(self.pending > 0)
 
     def submit(self, work: Callable[[], Any], on_done: Callable[[Any, Optional[BaseException]], None]):
         """work()를 일꾼 스레드에서 실행하고, 끝나면 on_done(결과, 오류)를 화면 스레드에서 호출한다.
         오류가 나면 결과는 None이고 오류 객체가 두 번째로 넘어간다."""
+        self._set_pending(self.pending + 1)
+
+        def finish(result, error, cb=on_done):
+            try:
+                cb(result, error)
+            finally:
+                self._set_pending(self.pending - 1)
+
+        on_done = finish
         with self._lock:
             self._jobs.put((work, on_done))
             if not self._running:
