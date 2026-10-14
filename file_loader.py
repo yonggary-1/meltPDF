@@ -62,7 +62,7 @@ class FileLoader:
         activity_log.log(f"폴더 (이미지) 추가: {Path(folder).name} (하위 폴더 {'포함' if recursive else '안 함'})")
         none_msg = ("선택한 폴더(하위 폴더 포함)에서 이미지 파일을 찾지 못했습니다." if recursive
                     else "선택한 폴더에서 이미지 파일을 찾지 못했습니다.")
-        self.model.note_source(Path(folder).name, str(Path(folder).parent))
+        self.model.note_source(Path(folder).name, str(Path(folder).parent), folder)
         self._load_folder_async(folder, recursive, none_msg)
 
     # ---------------------------------------------------------- 드래그앤드롭
@@ -106,14 +106,14 @@ class FileLoader:
                 flush_images()
                 self._handle_dropped_folder(p, before)
             elif Path(p).suffix.lower() in pdf_core.IMAGE_EXTS:
-                self.model.note_source(Path(p).stem, str(Path(p).parent))
+                self.model.note_source(Path(p).stem, str(Path(p).parent), p)
                 image_paths.append(p)
             else:
                 flush_images()
                 if any(handler(p, before) for handler in self.extra_drop_handlers):
                     continue
                 if p.lower().endswith(".pdf"):
-                    self.model.note_source(Path(p).stem, str(Path(p).parent))
+                    self.model.note_source(Path(p).stem, str(Path(p).parent), p)
                     self._load_pdf_async(p, before)
                 else:
                     skipped.append(Path(p).name)
@@ -140,7 +140,7 @@ class FileLoader:
         activity_log.log(f"폴더 {Path(folder).name}: 바로 안 {len(top)}장, 하위 폴더 {'있음' if subs else '없음'} -> {choice}")
         if choice == folder_ask.CANCEL:
             return
-        self.model.note_source(Path(folder).name, str(Path(folder).parent))
+        self.model.note_source(Path(folder).name, str(Path(folder).parent), folder)
         if choice == folder_ask.SEARCH:
             self._load_folder_async(folder, True, "서브 폴더에서도 이미지 파일을 찾지 못했습니다.", before)
         else:

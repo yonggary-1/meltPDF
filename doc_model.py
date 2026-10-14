@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tkinter as tk
 from typing import Callable, Dict, List, Optional, Set
 
@@ -36,6 +37,8 @@ class DocModel:
         self.source_name: Optional[str] = None
         # 처음 불러온 파일이 들어 있는 폴더(폴더를 넣었으면 그 폴더가 들어 있는 폴더). 이미지 내보내기의 "원본 파일 위치".
         self.source_dir: Optional[str] = None
+        # 지금까지 불러온 원본(파일/폴더) 경로들. 하나뿐이면 PDF 저장 창이 그 옆에서 "이름_Reprint.pdf"로 열린다(pdf_save_name.py).
+        self.source_paths: Set[str] = set()
         # 서지 정보: meta는 PDF로 내보낼 때 쓰는 현재 값(서지 정보 창에서 고친 것 포함), meta_sources는 불러온 파일들에서
         # 읽은 원래 값(읽은 순서). 현재 값은 "서지 정보가 있는 첫 파일"의 것으로 채우고, 사용자가 고친 뒤에는 바꾸지 않는다.
         self.meta: BookMeta = BookMeta()
@@ -56,9 +59,12 @@ class DocModel:
             fn()
 
     # ---- 처음 불러온 파일 이름
-    def note_source(self, name: str, directory: Optional[str] = None):
+    def note_source(self, name: str, directory: Optional[str] = None, path: Optional[str] = None):
         """처음 불러온 파일의 이름(확장자 뺀 것, 폴더면 폴더 이름)과, 그 파일이 있는 폴더를 기록한다.
-        이미 기록된 이름이 있으면 무시한다 - "처음 던져넣은 파일" 이름을 유지하기 위해서."""
+        이미 기록된 이름이 있으면 무시한다 - "처음 던져넣은 파일" 이름을 유지하기 위해서.
+        path(원본 파일/폴더의 전체 경로)는 매번 모아 둔다 - 원본이 하나뿐인지 알기 위해서."""
+        if path:
+            self.source_paths.add(os.path.normcase(os.path.abspath(path)))
         if self.source_name is None and name:
             self.source_name = name
             self.source_dir = directory
@@ -157,6 +163,7 @@ class DocModel:
         if not self.order:
             self.source_name = None
             self.source_dir = None
+            self.source_paths.clear()
             self._reset_meta()
         self._emit("structure")
 
@@ -169,6 +176,7 @@ class DocModel:
         self.cover_id = None
         self.source_name = None
         self.source_dir = None
+        self.source_paths.clear()
         self._reset_meta()
         self._emit("structure")
 

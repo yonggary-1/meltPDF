@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 import activity_log
 import bug_report
 import pdf_core
+import pdf_save_name
 import ui_mailbox
 from config import APP_TITLE
 from doc_model import DocModel
@@ -43,11 +44,11 @@ class Exporter:
         if not model.order:
             messagebox.showinfo(APP_TITLE, "먼저 이미지를 추가하세요.")
             return
-        # 기본 파일 이름 = 처음 불러온 파일 이름 (예: book.epub을 넣었으면 book.pdf)
-        default_name = f"{model.source_name}.pdf" if model.source_name else ""
+        # 원본이 파일/폴더 하나면 그 옆에서 "이름_Reprint.pdf"로, 여럿이면 처음 것의 이름.pdf (pdf_save_name.py)
+        start_dir, default_name = pdf_save_name.suggest(model)
         out_path = filedialog.asksaveasfilename(
             title="PDF로 저장", defaultextension=".pdf", filetypes=[("PDF 파일", "*.pdf")],
-            initialfile=default_name,
+            initialfile=default_name, **({"initialdir": start_dir} if start_dir else {}),
         )
         if not out_path:
             return
