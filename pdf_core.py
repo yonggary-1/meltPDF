@@ -19,7 +19,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from PIL import Image, ImageOps
 
@@ -57,6 +57,7 @@ class PageItem:
     origin_pdf: Optional[str] = None      # kind='pdf_page'일 때 원본 pdf 경로 (내보내기 시 실제로 사용)
     origin_page_no: Optional[int] = None  # kind='pdf_page'일 때 1-based 페이지 번호 (내보내기 시 실제로 사용)
     damaged: bool = False                 # 압축 파일 안에서 깨져 있던 이미지(읽을 수 있는 부분만 표시) - 화면에서 빨간 테두리로 구분
+    page_images: Optional[dict] = None    # kind='pdf_page'일 때 그 쪽에 쓰인 이미지들 {xref: 저장 크기(바이트)} - 용량 표시용(size_info.py)
 
 
 def _make_thumb_bytes(im: Image.Image) -> bytes:
@@ -127,11 +128,26 @@ def _build_image_item(im: Image.Image, label: str, source_path: Optional[str],
     )
 
 
-def list_images_in_folder(folder: Union[str, Path]) -> List[str]:
+def list_images_in_folder(folder: Union[str, Path], recursive: bool = False) -> List[str]:
+    """폴더 안의 이미지 파일 경로들을 이름 순(자연 정렬: 2가 10보다 앞, 압축 파일과 같은 규칙)으로 돌려준다.
+    recursive이면 하위 폴더의 이미지도 모두 넣는다(폴더 단위로 비교 - 같은 폴더 파일끼리 모임). 맥이 만드는
+    __MACOSX 폴더와 "._" 파일은 뺀다. 바로가기(심볼릭 링크) 폴더는 따라가지 않는다."""
+    from natural_sort import path_key
     folder = Path(folder)
-    files = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS]
-    files.sort(key=lambda p: p.name.lower())
-    return [str(p) for p in files]
+    found: List[Tuple[str, str]] = []                      # (정렬용 상대 경로, 전체 경로)
+    if recursive:
+        for dirpath, dirnames, filenames in os.walk(folder):
+            dirnames[:] = [d for d in dirnames if d != "__MACOSX"]
+            for name in filenames:
+                if not name.startswith("._") and Path(name).suffix.lower() in IMAGE_EXTS:
+                    full = Path(dirpath) / name
+                    found.append((full.relative_to(folder).as_posix(), str(full)))
+    else:
+        for p in folder.iterdir():
+            if p.is_file() and not p.name.startswith("._") and p.suffix.lower() in IMAGE_EXTS:
+                found.append((p.name, str(p)))
+    found.sort(key=lambda pair: path_key(pair[0]))
+    return [full for _rel, full in found]
 
 
 def load_pdf_items(pdf_path: Union[str, Path]) -> List[PageItem]:
@@ -153,6 +169,14 @@ def load_pdf_items(pdf_path: Union[str, Path]) -> List[PageItem]:
             pix = page.get_pixmap(matrix=mat, alpha=False)
             with Image.open(io.BytesIO(pix.tobytes("png"))) as im:
                 thumb_bytes = _make_thumb_bytes(im)
+            page_images = {}
+            try:
+                for info in page.get_images(full=True):
+                    xref = info[0]
+                    if xref and xref not in page_images:
+                        page_images[xref] = _stream_length(doc, xref)
+            except Exception:
+                pass                                    # 용량 표시용일 뿐이라 못 읽어도 불러오기는 계속한다
             items.append(
                 PageItem(
                     id=str(uuid.uuid4()),
@@ -163,11 +187,23 @@ def load_pdf_items(pdf_path: Union[str, Path]) -> List[PageItem]:
                     thumb_bytes=thumb_bytes,
                     origin_pdf=pdf_path,
                     origin_page_no=i + 1,
+                    page_images=page_images,
                 )
             )
     finally:
         doc.close()
     return items
+
+
+def _stream_length(doc, xref: int) -> int:
+    """PDF 안 이미지 하나가 차지하는 저장 크기(압축된 그대로의 바이트 수). 사전의 Length를 먼저 보고, 없으면 직접 읽는다."""
+    try:
+        kind, value = doc.xref_get_key(xref, "Length")
+        if kind == "int":
+            return int(value)
+        return len(doc.xref_stream_raw(xref) or b"")
+    except Exception:
+        return 0
 
 
 def _export_source(item: PageItem) -> Union[str, bytes]:

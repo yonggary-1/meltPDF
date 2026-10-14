@@ -1,7 +1,7 @@
 """
 책/압축 파일 열기 - zip/cbz 같은 파일에서 이미지만 뽑아 목록에 추가한다(화면 쪽 연결 담당).
 실제로 파일을 읽는 일은 book_import.py와 각 포맷 파일(archive_zip.py 등)이 하고, 여기는
-파일 선택 창 + 드래그앤드롭 받기 + 백그라운드 실행 + 진행 표시 + 오류 안내만 한다.
+드래그앤드롭/[파일 열기/추가]로 들어온 파일 받기 + 백그라운드 실행 + 진행 표시 + 오류 안내만 한다.
 
 여러 파일을 한꺼번에 넣으면 넣은 순서대로 하나씩 처리하고, 각 파일의 이미지는 그 파일 안에서의
 순서대로 이어 붙는다(zip/rar 같은 압축 파일은 이름 순, 책 형식은 파일에 들어 있는 순서).
@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from typing import List, Tuple
 
 import book_import
@@ -39,15 +39,6 @@ class BookLoader:
         self._pending_ram = 0          # 대기열에서 처리를 기다리는 동안 메모리에 올라올 예정인 양
 
     # ---------------------------------------------------------- 들어오는 길
-    def open_dialog(self):
-        exts = " ".join(f"*{e}" for e in book_import.SUPPORTED_EXTS)
-        paths = filedialog.askopenfilenames(
-            title="압축/책 파일 선택 (이미지만 꺼냅니다)",
-            filetypes=[("압축/책 파일", exts), ("모든 파일", "*.*")],
-        )
-        for p in paths:
-            self._enqueue(p)
-
     def handle_drop(self, path: str) -> bool:
         """드래그앤드롭으로 들어온 파일이 내가 처리할 형식이면 받아 가고 True를 돌려준다."""
         if os.path.isfile(path) and book_import.is_supported(path):

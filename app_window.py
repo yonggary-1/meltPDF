@@ -8,10 +8,12 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+import app_icon
 from book_loader import BookLoader
-from config import HAS_DND, WINDOW_TITLE
+from config import WINDOW_TITLE
 from doc_model import DocModel
 from drag_reorder import DragReorder
+from empty_hint import EmptyHint
 from export import Exporter
 from file_loader import FileLoader
 from image_export_dialog import ImageExporter
@@ -22,6 +24,7 @@ from meta_dialog import MetaDialog
 from page_actions import PageActions
 from ram_meter import RamMeter
 from rename_pages import RenamePages
+from selected_export import SelectedExporter
 from selection import Selection
 from settings import Settings
 from settings_dialog import SettingsDialog
@@ -34,26 +37,27 @@ class App:
     def __init__(self, root: tk.Misc):
         self.root = root
         root.title(WINDOW_TITLE)
+        app_icon.apply(root)               # 창 아이콘(액자 속 도장 모양) - assets/meltPDF.ico
         root.geometry("960x640")
         root.minsize(760, 480)
 
-        # 위젯을 만드는(=pack하는) 순서가 곧 화면 배치 순서다: 툴바, 안내문, 하단바, 그 다음 가운데 영역.
+        # 위젯을 만드는(=pack하는) 순서가 곧 화면 배치 순서다: 툴바, 하단바, 그 다음 가운데 영역.
         # (가운데 영역은 expand라서 하단바보다 먼저 pack하면 하단바 자리가 사라진다)
         self.model = DocModel()
         self.settings = Settings()
         self.toolbar = WrapBar(root, pad=6, gap_x=4, gap_y=4)
         self.toolbar.pack(side=tk.TOP, fill=tk.X)
-        self.hint_label = self._build_hint()
         self.status = StatusBar(root, self.model)
         self.view = TileView(root, self.model)
         self.view.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(4, 0))
 
+        self.empty_hint = EmptyHint(self.view.canvas, self.model)    # 목록이 비었을 때 가운데에 끌어다 놓기 안내
         self.selection = Selection(self.view, self.model)
         self.keynav = KeyNav(self.view, self.model)
         self.drag = DragReorder(root, self.view, self.model)
         self.viewer = ImageViewer(root, self.model, self.view)      # 썸네일 두 번 누름/Enter -> 원본 크기로 보는 창
         self.jobs = LoadQueue(root)        # 불러오기 작업을 넣은 순서대로 처리하는 공용 대기열
-        self.loader = FileLoader(root, self.model, self.status, self.jobs)
+        self.loader = FileLoader(root, self.model, self.status, self.jobs, self.settings)
         self.books = BookLoader(root, self.model, self.status, self.jobs, self.settings)
         self.loader.extra_drop_handlers.append(self.books.handle_drop)
         self.renamer = RenamePages(root, self.model)
@@ -62,27 +66,18 @@ class App:
         self.actions = PageActions(self.view.canvas, self.model)
         self.exporter = Exporter(root, self.model, self.status)
         self.image_exporter = ImageExporter(root, self.model, self.status, self.settings)
+        self.selected_exporter = SelectedExporter(root, self.model, self.status)
 
         self._fill_toolbar()
         self._fill_bottom_bar()
-        self.loader.register_drop_targets((self.view.canvas, self.hint_label, root))
-
-    def _build_hint(self) -> ttk.Label:
-        hint = "이미지 파일이나 폴더를 아래로 드래그하세요. (zip/rar/cbz/cbr은 안의 이미지만 꺼내고, PDF는 페이지로 열립니다 / 썸네일을 눌러서 끌면 순서를 바꿀 수 있습니다)"
-        if not HAS_DND:
-            hint = "[드래그앤드롭 비활성 - tkinterdnd2 미설치] 위 버튼으로 이미지/폴더/PDF를 추가하세요. (썸네일을 눌러서 끌면 순서를 바꿀 수 있습니다)"
-        label = ttk.Label(self.root, text=hint, padding=(8, 4))
-        label.pack(side=tk.TOP, fill=tk.X)
-        label.bind("<Configure>", lambda e: label.configure(wraplength=max(200, e.width - 16)))   # 좁은 창에서 안내문이 잘리지 않고 줄바꿈되게
-        return label
+        self.loader.register_drop_targets((self.view.canvas, root))
 
     def _fill_toolbar(self):
         # 창 폭이 좁아지면 WrapBar가 알아서 다음 줄로 넘기므로, 버튼이 늘어도 add()만 추가하면 된다.
         tb = self.toolbar
-        tb.add(ttk.Button(tb, text="이미지 추가", command=self.loader.add_images_dialog))
-        tb.add(ttk.Button(tb, text="폴더 추가", command=self.loader.add_folder_dialog))
-        tb.add(ttk.Button(tb, text="기존 PDF 열기(수정)", command=self.loader.open_pdf_dialog))
-        tb.add(ttk.Button(tb, text="압축/책에서 이미지 추출", command=self.books.open_dialog))
+        # 이미지/PDF/압축·책 파일은 [파일 열기/추가] 하나로 연다(끌어다 놓기와 같은 처리). 폴더는 윈도우 선택 창이 달라 따로 둔다.
+        tb.add(ttk.Button(tb, text="파일 열기/추가", command=self.loader.open_files_dialog))
+        tb.add(ttk.Button(tb, text="폴더 (이미지) 추가", command=self.loader.add_folder_dialog))
 
         tb.add(ttk.Separator(tb, orient=tk.VERTICAL), gap_before=8)
 
@@ -116,8 +111,10 @@ class App:
         ttk.Button(danger, text="선택 삭제", command=self.actions.delete_selected).pack(side=tk.LEFT)
         ttk.Button(danger, text="전체 삭제", command=self.actions.delete_all).pack(
             side=tk.LEFT, padx=(4, 0))
-        # pack을 RIGHT로 하면 먼저 둔 것이 맨 오른쪽: 메모리 미터, PDF로 내보내기, 이미지 내보내기 순
-        self.ram_meter = RamMeter(bar)
-        self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0))
+        # 메모리 미터는 윗줄(상태 문구 줄)의 오른쪽 끝에 둔다 - 아랫줄에 내보내기 버튼이 셋이라 좁은 창에서 잘리지 않게.
+        self.ram_meter = RamMeter(self.status.top_row)
+        self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0), before=self.status.label)
+        # pack을 RIGHT로 하면 먼저 둔 것이 맨 오른쪽: PDF로 내보내기, 전체 이미지 내보내기, 선택된 이미지 내보내기 순
         self.exporter.make_button(bar).pack(side=tk.RIGHT)
         self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))
+        self.selected_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))

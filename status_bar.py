@@ -1,5 +1,5 @@
 """
-하단 상태 표시줄 - "총 N페이지 | 표지: ..." 문구와, 다른 기능(불러오는 중, 생성 중...)이
+하단 상태 표시줄 - "총 N페이지 (이미지 용량) | 표지: ..." 문구와, 다른 기능(불러오는 중, 생성 중...)이
 잠깐 띄우는 안내 문구를 담당한다. 삭제/내보내기 버튼은 여기 프레임(self.frame) 안에
 app_window.py가 배치한다.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+import size_info
 from doc_model import DocModel
 
 
@@ -18,10 +19,14 @@ class StatusBar:
         self.frame = ttk.Frame(parent, padding=6)
         self.frame.pack(side=tk.BOTTOM, fill=tk.X)
         self.var = tk.StringVar(master=parent)
-        # 문구는 윗줄에 혼자 둔다. 아랫줄(app_window가 이 프레임에 pack하는 버튼들과 메모리 미터)이 좁은 창에서 문구 때문에
-        # 밀려 잘리지 않게 하려는 것(한 줄에 같이 두면 760px에서 PDF로 내보내기 버튼이 보이지 않았다).
-        ttk.Label(self.frame, textvariable=self.var).pack(side=tk.TOP, anchor="w", fill=tk.X, pady=(0, 4))
+        # 윗줄: 문구(왼쪽) + 오른쪽 끝 자리(top_row - app_window가 메모리 미터를 여기 둔다). 아랫줄: app_window가 이 프레임에
+        # pack하는 버튼들. 버튼 줄이 좁은 창에서 잘리지 않게 버튼 외의 것은 윗줄로 올린다(760px에서 확인).
+        # 문구는 창이 좁으면 뒤쪽이 잘려 보인다(미터를 먼저 오른쪽에 두므로 미터는 잘리지 않음).
+        self.top_row = ttk.Frame(self.frame)
+        self.top_row.pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
+        self.label = ttk.Label(self.top_row, textvariable=self.var)
 
+        self.label.pack(side=tk.LEFT, anchor="w", fill=tk.X, expand=True)   # 미터가 먼저 오른쪽 자리를 잡은 뒤 남는 폭을 쓴다
         model.subscribe("structure", self.refresh)
         model.subscribe("order", self.refresh)
         self.refresh()
@@ -32,4 +37,6 @@ class StatusBar:
     def refresh(self):
         n = len(self.model.order)
         cover_txt = "표지: 지정됨" if self.model.cover_id else "표지: 없음"
-        self.var.set(f"총 {n}페이지 | {cover_txt} | 썸네일을 누른 채로 끌면 순서를 바꿀 수 있습니다.")
+        size, approx = size_info.total_bytes(self.model.items[i] for i in self.model.order)
+        size_txt = f" (이미지 {'약 ' if approx else ''}{size_info.fmt_size(size)})" if n else ""
+        self.var.set(f"총 {n}페이지{size_txt} | {cover_txt} | 썸네일을 누른 채로 끌면 순서를 바꿀 수 있습니다.")

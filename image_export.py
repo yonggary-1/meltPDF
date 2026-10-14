@@ -80,6 +80,7 @@ class Entry:
     filename: str
     pdf_ref: Optional[Tuple[str, int]] = None         # (PDF 경로, 이미지 xref) - PDF 안에서 꺼내는 이미지
     label: str = ""                                    # 겹침 안내에 보여줄 이름
+    saved_as: str = ""                                 # 실제로 저장한 이름(write_plan이 채움)
 
 
 @dataclass
@@ -89,6 +90,8 @@ class ExportPlan:
     renamed: List[Tuple[str, str]] = field(default_factory=list)   # (목록에 보이던 이름, 저장할 이름) - 겹쳐서 바뀐 것만
     skipped_pdf_pages: int = 0                       # 꺼낼 이미지가 없거나 이미 저장한 이미지뿐이라 건너뛴 PDF 쪽
     notes: List[str] = field(default_factory=list)  # 사용자에게 알릴 사유(열 수 없는 PDF 등)
+    into_existing: bool = False                      # True: dest_dir은 이미 있는 폴더(새 폴더를 만들지 않고 그 안에 바로 저장)
+    existing_names: set = field(default_factory=set)  # into_existing일 때 그 폴더에 이미 있는 이름들(소문자) - 덮어쓰지 않게
 
 
 _DEFAULT_PDF_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)$", re.IGNORECASE)
@@ -106,7 +109,23 @@ def build_plan(items: List[pdf_core.PageItem], parent_dir: str, folder_name: str
     """items(내보낼 순서)를 parent_dir 안의 새 폴더에 풀 계획을 만든다. 디스크에는 아무것도 만들지 않는다(PDF는 읽기만 한다)."""
     dest = name_codec.unique_dir(parent_dir, name_codec.safe_name(folder_name or "images", fallback="images"))
     plan = ExportPlan(dest_dir=dest)
-    taken: set = set()
+    _fill_plan(plan, items, set())
+    return plan
+
+
+def build_plan_into(items: List[pdf_core.PageItem], dest_dir: str) -> ExportPlan:
+    """새 폴더를 만들지 않고 이미 있는 폴더(dest_dir) 안에 바로 저장할 계획(선택된 이미지 내보내기).
+    그 폴더에 이미 있는 파일과 이름이 겹치면 " (1)"을 붙여 덮어쓰지 않는다."""
+    try:
+        existing = {n.lower() for n in os.listdir(dest_dir)}
+    except OSError:
+        existing = set()
+    plan = ExportPlan(dest_dir=dest_dir, into_existing=True, existing_names=set(existing))
+    _fill_plan(plan, items, set(existing))
+    return plan
+
+
+def _fill_plan(plan: ExportPlan, items: List[pdf_core.PageItem], taken: set) -> None:
     docs: dict = {}                    # PDF 경로 -> 열린 문서(또는 열 수 없어 None)
     seen_xrefs: set = set()            # (PDF 경로, xref) - 이미 꺼내기로 한 이미지
     bad_pdfs: set = set()
@@ -124,7 +143,6 @@ def build_plan(items: List[pdf_core.PageItem], parent_dir: str, folder_name: str
         for doc in docs.values():
             if doc is not None:
                 doc.close()
-    return plan
 
 
 def _plan_pdf_page(plan, item, docs, seen_xrefs, bad_pdfs, taken) -> None:
@@ -159,13 +177,36 @@ def _plan_pdf_page(plan, item, docs, seen_xrefs, bad_pdfs, taken) -> None:
         plan.entries.append(Entry(None, final, pdf_ref=(path, xref), label=wanted))
 
 
+def _write_new(folder: str, filename: str, taken: set, data: Optional[bytes] = None, src: Optional[str] = None) -> str:
+    """folder 안에 새 파일로 쓴다. 이미 같은 이름의 파일이 있으면(그 사이에 생겼어도) 덮어쓰지 않고 번호를 붙인다. 쓴 이름을 돌려준다."""
+    for _ in range(1000):
+        path = os.path.join(folder, filename)
+        try:
+            f = open(path, "xb")
+        except FileExistsError:
+            taken.add(filename.lower())
+            filename = name_codec.unique_name(filename, taken)
+            continue
+        with f:
+            if data is not None:
+                f.write(data)
+            else:
+                with open(src, "rb") as s:
+                    shutil.copyfileobj(s, f, 1024 * 1024)
+        return filename
+    raise OSError("저장할 이름을 정하지 못했습니다.")
+
+
 def write_plan(plan: ExportPlan, on_progress: Callable[[int, int], None] = lambda d, t: None) -> Tuple[int, List[str]]:
-    """계획대로 폴더를 만들고 파일을 쓴다. (쓴 개수, 실패 설명들)을 돌려준다. 폴더를 못 만들면 예외."""
-    os.makedirs(plan.dest_dir, exist_ok=False)
+    """계획대로 폴더를 만들고 파일을 쓴다. (쓴 개수, 실패 설명들)을 돌려준다. 폴더를 못 만들면 예외.
+    into_existing 계획은 폴더를 만들지 않고, 파일은 새로 만들기만 한다(그 사이 같은 이름이 생겼으면 번호를 붙임 - 덮어쓰지 않음).
+    실제로 저장한 파일 이름은 entry.saved_as에 남긴다."""
+    if not plan.into_existing:
+        os.makedirs(plan.dest_dir, exist_ok=False)
     written, errors = 0, []
     total = len(plan.entries)
     docs: dict = {}
-    taken = {e.filename.lower() for e in plan.entries}
+    taken = {e.filename.lower() for e in plan.entries} | set(plan.existing_names)
     try:
         for done, entry in enumerate(plan.entries, start=1):
             filename = entry.filename
@@ -185,16 +226,14 @@ def write_plan(plan: ExportPlan, on_progress: Callable[[int, int], None] = lambd
                         taken.discard(filename.lower())
                         filename = name_codec.unique_name(stem + ext, taken)
                         taken.add(filename.lower())
-                    with open(os.path.join(plan.dest_dir, filename), "wb") as f:
-                        f.write(data)
+                    filename = _write_new(plan.dest_dir, filename, taken, data=data)
                 else:
                     item = entry.item
-                    out = os.path.join(plan.dest_dir, filename)
                     if item.raster_bytes is not None:
-                        with open(out, "wb") as f:
-                            f.write(item.raster_bytes)
+                        filename = _write_new(plan.dest_dir, filename, taken, data=item.raster_bytes)
                     else:
-                        shutil.copyfile(item.source_path, out)
+                        filename = _write_new(plan.dest_dir, filename, taken, src=item.source_path)
+                entry.saved_as = filename
                 written += 1
             except (OSError, pdf_images.PdfImageError) as e:
                 errors.append(f"{filename}: {e}")

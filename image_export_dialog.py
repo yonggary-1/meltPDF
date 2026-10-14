@@ -1,5 +1,5 @@
 """
-[이미지 내보내기] 버튼과 팝업 창 - 목록의 이미지를 폴더에 파일로 풀어 놓는다.
+[전체 이미지 내보내기] 버튼과 팝업 창 - 목록의 이미지를 폴더에 파일로 풀어 놓는다.
 팝업의 세 버튼: [원본 파일 위치에 폴더 생성 후 풀기] / [설정 폴더에 폴더 생성 후 풀기] / [찾아보기].
 어떤 이름을 어떻게 만들지는 image_export.py가 정하고, 여기는 대상 폴더 고르기 + 백그라운드 실행 + 안내만 한다.
 """
@@ -30,7 +30,7 @@ class ImageExporter:
         self._busy = False
 
     def make_button(self, parent: tk.Misc) -> ttk.Button:
-        self.button = ttk.Button(parent, text="이미지 내보내기", command=self.open_dialog)
+        self.button = ttk.Button(parent, text="전체 이미지 내보내기", command=self.open_dialog)
         return self.button
 
     # ---------------------------------------------------------- 팝업
@@ -41,7 +41,7 @@ class ImageExporter:
             messagebox.showinfo(APP_TITLE, "먼저 이미지를 추가하세요.")
             return
         win = tk.Toplevel(self.root)
-        win.title("이미지 내보내기")
+        win.title("전체 이미지 내보내기")
         win.transient(self.root)
         win.resizable(False, False)
         frm = ttk.Frame(win, padding=14)

@@ -62,7 +62,7 @@ if exist meltPDF.spec del /q meltPDF.spec
 
 echo.
 echo [5/5] Building EXE... (this can take a few minutes)
-pyinstaller --noconfirm --onefile --windowed --name "meltPDF" --collect-all tkinterdnd2 --collect-all fitz --collect-all pymupdf --collect-all PIL --collect-all pikepdf --collect-all img2pdf --collect-all py7zr --add-data "tools\UnRAR.exe;tools" --add-data "tools\UnRAR_license.txt;tools" --add-data "tools\ddjvu.exe;tools" --add-data "tools\djvused.exe;tools" --add-data "tools\djvulibre\COPYING;tools\djvulibre" --add-data "THIRD_PARTY_NOTICES.md;." main.py
+pyinstaller --noconfirm --onefile --windowed --name "meltPDF" --icon "assets\meltPDF.ico" --add-data "assets\meltPDF.ico;assets" --add-data "assets\meltPDF.png;assets" --collect-all tkinterdnd2 --collect-all fitz --collect-all pymupdf --collect-all PIL --collect-all pikepdf --collect-all img2pdf --collect-all py7zr --add-data "tools\UnRAR.exe;tools" --add-data "tools\UnRAR_license.txt;tools" --add-data "tools\ddjvu.exe;tools" --add-data "tools\djvused.exe;tools" --add-data "tools\djvulibre\COPYING;tools\djvulibre" --add-data "THIRD_PARTY_NOTICES.md;." main.py
 
 if errorlevel 1 (
     echo.

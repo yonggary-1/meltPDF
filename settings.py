@@ -20,6 +20,7 @@ DEFAULTS: Dict[str, Any] = {
     "storage_mode": STORAGE_ASK,
     "ram_limit_gb": 0.0,        # 0 = 자동(그 순간 남은 메모리의 절반)
     "image_export_dir": "",     # 이미지 내보내기 기본 폴더 ("" = 지정 안 함)
+    "folder_recursive": False,  # [폴더 (이미지) 추가] 창의 "서브 폴더의 이미지 파일도 전부 추가" 체크 상태
 }
 
 

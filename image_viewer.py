@@ -2,6 +2,8 @@
 이미지 보기 창 - 썸네일을 두 번 누르거나(또는 선택하고 Enter) 원본 크기의 이미지를 팝업 창으로 보여준다.
 
 창 아래에 세 버튼: [-] 축소, [=] 창에 맞춤, [+] 확대. (마우스 휠은 가리킨 곳을 기준으로 확대/축소, Esc는 닫기)
+그 옆의 [복사 (Ctrl+C)]는 보고 있는 이미지를 원래 크기 그대로 클립보드에 그림으로 넣는다(웹 브라우저의 "이미지 복사"와 같음,
+image_clipboard.py). PDF 쪽은 보기 창에 그린 그림(긴 변 2600px)을 넣는다.
 이미지가 창보다 크게 확대된 상태에서는 마우스로 끌어서 옮겨 볼 수 있다.
 - 화면에 보이는 부분만 잘라서 크기를 바꿔 그리므로, 아주 큰 이미지를 크게 확대해도 메모리/속도 문제가 없다.
 - 기존 PDF의 페이지는 원본 페이지를 큼직하게 그려서 보여준다(보기 전용 - 내보내기에는 영향 없음).
@@ -19,6 +21,7 @@ import fitz  # PyMuPDF
 from PIL import Image, ImageTk
 
 import damaged_image
+import image_clipboard
 import pdf_core
 from config import APP_TITLE
 from doc_model import DocModel
@@ -52,6 +55,19 @@ def load_full_image(item: pdf_core.PageItem) -> Image.Image:
         return damaged_image.open_tolerant(data=data, path=path)     # 깨진 이미지도 읽히는 부분까지 보여준다
 
 
+def _make_copy_icon(master) -> ImageTk.PhotoImage:
+    """복사 버튼의 작은 그림: 겹친 종이 두 장(16px)."""
+    from PIL import ImageDraw
+    S = 4
+    im = Image.new("RGBA", (16 * S, 16 * S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    w = round(1.4 * S)
+    d.rounded_rectangle([5 * S, 1 * S, 15 * S - 1, 12 * S - 1], radius=2 * S, outline=(70, 70, 70, 255), width=w)
+    d.rounded_rectangle([1 * S, 4 * S, 11 * S - 1, 15 * S - 1], radius=2 * S, fill=(255, 255, 255, 255),
+                        outline=(70, 70, 70, 255), width=w)
+    return ImageTk.PhotoImage(im.resize((16, 16), Image.LANCZOS), master=master)
+
+
 def _to_display(im: Image.Image) -> Image.Image:
     """화면에 그릴 수 있는 RGB로 바꾼다(투명한 부분은 흰색)."""
     if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
@@ -81,6 +97,10 @@ class ImageViewer:
         self.cx = self.cy = 0.0              # 캔버스 한가운데에 보이는 이미지 위의 점
         self.fit_mode = True
         self._drag_from = None
+        self.item_id: Optional[str] = None   # 보고 있는 항목(복사할 때 원본을 다시 읽는다)
+        self.copy_msg: Optional[ttk.Label] = None
+        self._copy_icon = None
+        self._msg_job = None
 
     # ------------------------------------------------------------ 열기 (두 번 누름 / Enter)
     def _on_press(self, event):
@@ -119,6 +139,7 @@ class ImageViewer:
             return
         self._ensure_window()
         self.img = im
+        self.item_id = iid
         self.fit_mode = True
         self.cx, self.cy = im.width / 2, im.height / 2
         title = item.label + ("  - 손상됨(읽을 수 있는 부분만 표시)" if getattr(item, "damaged", False) else "")
@@ -147,8 +168,13 @@ class ImageViewer:
         style.configure("Viewer.TButton", font=("", 14, "bold"), padding=(10, 2))
         for text, cmd in (("-", self.zoom_out), ("=", self._fit), ("+", self.zoom_in)):
             ttk.Button(inner, text=text, width=3, style="Viewer.TButton", command=cmd, takefocus=0).pack(side="left", padx=4)
+        self._copy_icon = _make_copy_icon(win)
+        ttk.Button(inner, text="복사 (Ctrl+C)", image=self._copy_icon, compound="left", command=self.copy_to_clipboard,
+                   takefocus=0).pack(side="left", padx=(12, 4))
         self.zoom_label = ttk.Label(inner, text="", width=8, anchor="w")
         self.zoom_label.pack(side="left", padx=(10, 0))
+        self.copy_msg = ttk.Label(inner, text="", width=12, anchor="w")
+        self.copy_msg.pack(side="left")
         canvas.bind("<Configure>", lambda e: self._on_resize())
         canvas.bind("<ButtonPress-1>", self._drag_start)
         canvas.bind("<B1-Motion>", self._drag_move)
@@ -159,6 +185,8 @@ class ImageViewer:
                         ("<KP_Subtract>", self.zoom_out), ("<equal>", self._fit)):
             win.bind(seq, lambda e, fn=fn: fn())
         win.bind("<Escape>", lambda e: self.close())
+        for seq in ("<Control-c>", "<Control-C>"):
+            win.bind(seq, lambda e: self.copy_to_clipboard())
         win.protocol("WM_DELETE_WINDOW", self.close)
 
     def _size_window_for(self, im: Image.Image):
@@ -175,6 +203,43 @@ class ImageViewer:
         if self.win is not None and self.win.winfo_exists():
             self.win.destroy()
         self.win = self.canvas = self.img = self._photo = None
+        self.item_id = None
+
+    # ------------------------------------------------------------ 클립보드로 복사
+    def copy_to_clipboard(self):
+        if self.win is None or self.img is None:
+            return
+        item = self.model.items.get(self.item_id) if self.item_id else None
+        self.win.configure(cursor="watch")
+        self.win.update_idletasks()
+        try:
+            try:
+                im = load_full_image(item) if item is not None else self.img    # 투명도까지 원본 그대로
+            except Exception:
+                im = self.img
+            image_clipboard.copy_image(im)
+        except image_clipboard.ClipboardError as e:
+            messagebox.showwarning(APP_TITLE, str(e), parent=self.win)
+            return
+        except Exception as e:
+            messagebox.showwarning(APP_TITLE, f"이미지를 복사하지 못했습니다:\n{e}", parent=self.win)
+            return
+        finally:
+            if self.win is not None:
+                self.win.configure(cursor="")
+        self._flash("복사했습니다")
+
+    def _flash(self, text: str):
+        if self.copy_msg is None:
+            return
+        self.copy_msg.configure(text=text)
+        if self._msg_job is not None:
+            try:
+                self.copy_msg.after_cancel(self._msg_job)
+            except tk.TclError:
+                pass
+        self._msg_job = self.copy_msg.after(2000, lambda: self.copy_msg is not None and self.copy_msg.winfo_exists()
+                                            and self.copy_msg.configure(text=""))
 
     # ------------------------------------------------------------ 확대/축소/맞춤
     def _canvas_size(self):
