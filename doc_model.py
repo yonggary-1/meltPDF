@@ -19,6 +19,7 @@ from typing import Callable, Dict, List, Optional, Set
 
 from PIL import Image, ImageTk
 
+import activity_log
 import pdf_core
 from book_meta import BookMeta
 
@@ -122,6 +123,7 @@ class DocModel:
             self.photo_cache[it.id] = self._make_photo(it)
             new_ids.append(it.id)
         self.order[pos:pos] = new_ids
+        activity_log.log(f"목록에 {len(new_ids)}장 넣음 (자리 {pos}{'=끝' if pos + len(new_ids) == len(self.order) else ''}, 전체 {len(self.order)})")
         self.added_ids = set(new_ids)
         self.added_at = pos
         try:
@@ -133,6 +135,7 @@ class DocModel:
     def remove_selected(self):
         if not self.selected:
             return
+        activity_log.log(f"선택 삭제 {len(self.selected)}장 (전체 {len(self.order)})")
         for iid in list(self.selected):
             if iid in self.order:
                 self.order.remove(iid)
@@ -148,6 +151,7 @@ class DocModel:
         self._emit("structure")
 
     def clear(self):
+        activity_log.log(f"전체 삭제 ({len(self.order)}장)")
         self.order.clear()
         self.items.clear()
         self.photo_cache.clear()
@@ -189,5 +193,6 @@ class DocModel:
         if order_wo[:idx] + [iid] + order_wo[idx:] == self.order:
             return
         order_wo.insert(idx, iid)
+        activity_log.log(f"순서 변경: {self.order.index(iid)} -> {idx}")
         self.order = order_wo
         self._emit("order")

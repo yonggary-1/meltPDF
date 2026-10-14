@@ -9,6 +9,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+import activity_log
 import book_import
 import damaged_image
 import folder_ask
@@ -49,6 +50,7 @@ class FileLoader:
                        ("PDF 파일", "*.pdf"), ("압축/책 파일", books), ("모든 파일", "*.*")],
         )
         if paths:
+            activity_log.log("파일 열기/추가: " + activity_log.names(paths))
             self.handle_paths(list(paths))
 
     def add_folder_dialog(self):
@@ -56,6 +58,7 @@ class FileLoader:
         folder_pick.open_folder_pick(self.root, self.settings, self._add_folder)
 
     def _add_folder(self, folder: str, recursive: bool):
+        activity_log.log(f"폴더 (이미지) 추가: {Path(folder).name} (하위 폴더 {'포함' if recursive else '안 함'})")
         none_msg = ("선택한 폴더(하위 폴더 포함)에서 이미지 파일을 찾지 못했습니다." if recursive
                     else "선택한 폴더에서 이미지 파일을 찾지 못했습니다.")
         self.model.note_source(Path(folder).name, str(Path(folder).parent))
@@ -77,6 +80,10 @@ class FileLoader:
             paths = [event.data]
         # 목록 중간에 놓았으면 그 자리(파란 막대가 보이던 곳)의 뒤쪽 항목 - 그 앞에 넣는다(file_drop_mark.py)
         before = self.drop_anchor(event) if self.drop_anchor is not None else None
+        where = "끝" if before is None else (f"'{self.model.items[before].label}' 앞" if before in self.model.items else "?")
+        target = "썸네일 영역" if getattr(event, "widget", None) is not self.root else "창"
+        activity_log.log(f"끌어다 놓기({target}, 자리 {where}, 목록 {len(self.model.order)}장, 불러오는 중 {self.jobs.pending}개): "
+                         + activity_log.names(paths))
         self.handle_paths([p.strip("{}") for p in paths], before)
 
     def handle_paths(self, paths, before=None):
@@ -129,6 +136,7 @@ class FileLoader:
         choice = folder_ask.TOP_ONLY
         if subs:
             choice = folder_ask.ask(self.root, Path(folder).name, len(top))
+        activity_log.log(f"폴더 {Path(folder).name}: 바로 안 {len(top)}장, 하위 폴더 {'있음' if subs else '없음'} -> {choice}")
         if choice == folder_ask.CANCEL:
             return
         self.model.note_source(Path(folder).name, str(Path(folder).parent))
@@ -143,7 +151,8 @@ class FileLoader:
         """labels: 목록에 보일 이름(없으면 파일 이름). before: 이 항목 앞에 넣는다(None이면 끝)."""
         self.status.set(f"이미지 {len(paths)}개 불러오는 중...")
         labels = list(labels) if labels else [Path(p).name for p in paths]
-        self.jobs.submit(lambda: self._load_paths(paths, labels, before), self._done_loading)
+        self.jobs.submit(lambda: self._load_paths(paths, labels, before), self._done_loading,
+                         label=f"이미지 {len(paths)}장")
 
     def _load_folder_async(self, folder: str, recursive: bool, none_msg: str = "", before=None):
         """폴더 안 이미지 찾기(하위 폴더가 많으면 오래 걸릴 수 있음)부터 불러오기까지 일꾼 스레드에서 한다."""
@@ -169,7 +178,7 @@ class FileLoader:
                 return
             self._done_loading(result, error)
 
-        self.jobs.submit(work, done)
+        self.jobs.submit(work, done, label=f"폴더 {Path(folder).name}" + (" +하위" if recursive else ""))
 
     def _load_paths(self, paths, labels, before=None) -> LoadResult:
         """(일꾼 스레드) 이미지 파일들을 목록 항목으로 읽는다. 여러 장을 동시에 읽고(parallel_load), 읽은 순서가 아니라
@@ -231,7 +240,7 @@ class FileLoader:
                 self.model.add(items, before=before)
                 self.status.refresh()                  # 쪽이 하나도 없어 목록 알림이 없을 때도 "PDF 여는 중"을 지운다
 
-        self.jobs.submit(work, done)
+        self.jobs.submit(work, done, label=f"PDF {Path(path).name}")
 
 
 def _read_one(job):

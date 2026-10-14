@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from tkinter import messagebox
 from typing import List
 
+import activity_log
 from config import APP_TITLE
 
 _MAX_LINES = 20
@@ -50,6 +51,9 @@ def build_message(result: LoadResult) -> str:
 
 
 def show(result: LoadResult) -> None:
+    activity_log.log(f"불러오기 결과{' (' + result.source + ')' if result.source else ''}: {len(result.items)}장, 손상 {len(result.damaged)},"
+                     f" 못 읽음 {len(result.errors)}{', 중단됨' if result.cancelled else ''}"
+                     + (f" - 첫 오류: {result.errors[0][:200]}" if result.errors else ""))
     text = build_message(result)
     if not text:
         return

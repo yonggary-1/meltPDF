@@ -9,11 +9,19 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Iterable, Iterator, Optional, Tuple
 
+import activity_log
+
 MAX_WORKERS = 8
+
+
+def _note_thread() -> None:
+    """활동 기록에 스레드 번호를 남긴다(충돌 기록(faulthandler)은 스레드를 번호로만 보여 주므로 맞춰 보기 위해)."""
+    activity_log.log(f"스레드 시작 (id 0x{threading.get_ident():x})")
 
 
 def worker_count() -> int:
@@ -36,7 +44,7 @@ def ordered(fn: Callable[[Any], Any], args: Iterable[Any],
             except Exception as e:
                 yield a, None, e
         return
-    ex = ThreadPoolExecutor(max_workers=n, thread_name_prefix="thumb")
+    ex = ThreadPoolExecutor(max_workers=n, thread_name_prefix="썸네일", initializer=_note_thread)
     pending: deque = deque()
     try:
         def fill():

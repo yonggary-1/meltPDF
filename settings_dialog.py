@@ -7,6 +7,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+import bug_report
 import memory_info
 from config import APP_TITLE
 from settings import STORAGE_ASK, STORAGE_DISK, STORAGE_RAM, Settings
@@ -81,9 +82,11 @@ class SettingsDialog:
             win.destroy()
 
         btns = ttk.Frame(frm)
-        btns.grid(row=8, column=0, sticky="e", pady=(16, 0))
-        ttk.Button(btns, text="저장", command=apply).pack(side=tk.LEFT)
-        ttk.Button(btns, text="취소", command=win.destroy).pack(side=tk.LEFT, padx=(6, 0))
+        btns.grid(row=8, column=0, sticky="we", pady=(16, 0))
+        # 버그 리포트/활동 기록이 있는 폴더(오류가 없어도 기록을 보내고 싶을 때)
+        ttk.Button(btns, text="버그 리포트 폴더 열기", command=bug_report.open_log_folder).pack(side=tk.LEFT)
+        ttk.Button(btns, text="취소", command=win.destroy).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btns, text="저장", command=apply).pack(side=tk.RIGHT)
         win.bind("<Escape>", lambda e: win.destroy())
 
         win.update_idletasks()

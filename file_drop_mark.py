@@ -15,6 +15,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Optional
 
+import activity_log
 import drop_slot
 from config import DROP_MARK, HAS_DND
 
@@ -29,6 +30,7 @@ class FileDropMark:
         self.canvas = view.canvas
         self._mark = None
         self._boundary: Optional[int] = None
+        self._inside = False          # 활동 기록용: 끌어온 커서가 썸네일 영역 안에 있는가
         loader.drop_anchor = self.anchor_for
         view.layout_hooks.append(self._raise)
         if HAS_DND:
@@ -44,6 +46,9 @@ class FileDropMark:
 
     def _on_position(self, event):
         action = getattr(event, "action", None) or "copy"
+        if not self._inside:
+            self._inside = True
+            activity_log.log(f"밖에서 끌어오는 중: 썸네일 영역에 들어옴 (목록 {len(self.model.order)}장)")
         if not self.model.order:                     # 목록이 비어 있으면 막대 없이 그냥 받는다
             self.clear()
             return action
@@ -53,6 +58,9 @@ class FileDropMark:
         return action
 
     def _on_leave(self, event):
+        if self._inside:
+            activity_log.log("밖에서 끌어오는 중: 썸네일 영역을 벗어남")
+        self._inside = False
         self.clear()
         return getattr(event, "action", None) or "copy"
 
@@ -97,6 +105,7 @@ class FileDropMark:
     def anchor_for(self, event) -> Optional[str]:
         """놓은 자리의 뒤쪽 항목 id(새 항목을 그 앞에 넣는다). 썸네일 영역 밖이거나 맨 끝이면 None."""
         boundary = self._boundary
+        self._inside = False
         self.clear()
         if getattr(event, "widget", None) is not self.canvas or not self.model.order:
             return None

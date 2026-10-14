@@ -15,6 +15,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Optional
 
+import activity_log
+import bug_report
 import image_export
 from config import APP_TITLE
 from doc_model import DocModel
@@ -68,11 +70,15 @@ class SelectedExporter:
                 result = image_export.write_plan(plan)
                 self.root.after(0, lambda: self._on_done(plan, result, None))
             except Exception as e:
-                self.root.after(0, lambda: self._on_done(plan, None, e))
+                self.root.after(0, lambda e=e: self._on_done(plan, None, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=work, name="선택이미지내보내기", daemon=True).start()
 
     def _on_done(self, plan, result, error):
+        if error is not None:
+            bug_report.note_handled("선택된 이미지 내보내기 실패", error)
+        else:
+            activity_log.log("선택된 이미지 내보내기 끝")
         self._busy = False
         if self.button is not None:
             self.button.configure(state="normal")

@@ -16,6 +16,8 @@ from __future__ import annotations
 import time
 from typing import Callable, List, Optional
 
+import activity_log
+
 BATCH = 24            # 한 번에 넣는 최대 장수(너무 잘게 넣으면 화면 갱신이 잦아져 오히려 느려진다)
 INTERVAL = 0.4        # 이만큼 지나면 덜 모였어도 넣는다(큰 이미지를 천천히 읽을 때도 화면이 움직이게)
 FIRST_INTERVAL = 0.15 # 첫 묶음은 더 빨리 넣어 "읽기 시작했다"가 바로 보이게
@@ -76,3 +78,4 @@ class Feeder:
             self.before = order[i] if i < len(order) else None
         else:
             self.before = None
+        activity_log.log(f"넣을 자리의 기준 항목이 지워짐 -> {'끝' if self.before is None else '앞서 넣은 항목 뒤'}에 이어 넣음")

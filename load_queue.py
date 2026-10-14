@@ -10,7 +10,10 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+import traceback
 from typing import Any, Callable, Optional, Tuple
+
+import activity_log
 
 
 class LoadCancelled(Exception):
@@ -31,6 +34,7 @@ class LoadQueue:
         """(화면 스레드) 불러오기 중단. 진행 중인 작업에는 멈추라고 알리고(cancelled()로 확인), 아직 시작하지 않은 작업은 버린다
         (그 작업의 on_done에는 결과 None, 오류 LoadCancelled가 넘어간다)."""
         self._cancel.set()
+        activity_log.log("불러오기 [중단] 누름")
         dropped = []
         with self._lock:
             while True:
@@ -38,6 +42,8 @@ class LoadQueue:
                     dropped.append(self._jobs.get_nowait())
                 except queue.Empty:
                     break
+        if dropped:
+            activity_log.log(f"기다리던 작업 {len(dropped)}개 취소")
         for _work, on_done in dropped:
             self.root.after(0, lambda cb=on_done: cb(None, LoadCancelled()))
 
@@ -55,25 +61,49 @@ class LoadQueue:
             for fn in list(self._busy_listeners):
                 fn(self.pending > 0)
 
-    def submit(self, work: Callable[[], Any], on_done: Callable[[Any, Optional[BaseException]], None]):
+    def submit(self, work: Callable[[], Any], on_done: Callable[[Any, Optional[BaseException]], None],
+               label: str = ""):
         """work()를 일꾼 스레드에서 실행하고, 끝나면 on_done(결과, 오류)를 화면 스레드에서 호출한다.
-        오류가 나면 결과는 None이고 오류 객체가 두 번째로 넘어간다."""
+        오류가 나면 결과는 None이고 오류 객체가 두 번째로 넘어간다. label은 활동 기록에 남길 작업 이름."""
         self._set_pending(self.pending + 1)
+        self._seq = getattr(self, "_seq", 0) + 1
+        tag = f"작업{self._seq}" + (f"({label})" if label else "")
+        activity_log.log(f"{tag} 대기열에 넣음 (대기/진행 {self.pending}개)")
 
         def finish(result, error, cb=on_done):
+            activity_log.log(f"{tag} 결과 처리" + (f" - 오류 {type(error).__name__}" if error else ""))
             try:
                 cb(result, error)
             finally:
                 self._set_pending(self.pending - 1)
+
+        work = self._logged(work, tag)
 
         on_done = finish
         with self._lock:
             self._jobs.put((work, on_done))
             if not self._running:
                 self._running = True
-                threading.Thread(target=self._worker, daemon=True).start()
+                threading.Thread(target=self._worker, name="불러오기", daemon=True).start()
+
+    @staticmethod
+    def _logged(work, tag):
+        def run():
+            t0 = activity_log.elapsed()
+            activity_log.log(f"{tag} 시작")
+            try:
+                r = work()
+            except BaseException as e:
+                if not isinstance(e, LoadCancelled):
+                    activity_log.log(f"{tag} 오류: {type(e).__name__}: {e}\n    "
+                                     + "".join(traceback.format_exception(type(e), e, e.__traceback__)).rstrip().replace("\n", "\n    "))
+                raise
+            activity_log.log(f"{tag} 끝 ({activity_log.elapsed() - t0:.1f}초)")
+            return r
+        return run
 
     def _worker(self):
+        activity_log.log(f"스레드 시작 (id 0x{threading.get_ident():x})")
         while True:
             with self._lock:
                 try:

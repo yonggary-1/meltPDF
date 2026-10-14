@@ -14,6 +14,7 @@ from pathlib import Path
 from tkinter import messagebox
 from typing import List, Tuple
 
+import activity_log
 import book_import
 import pdf_core
 import storage_policy
@@ -63,8 +64,10 @@ class BookLoader:
             self._pending_ram += estimate
         self.model.note_source(Path(path).stem, str(Path(path).parent))
         self.status.set(f"{name} 대기 중...")
+        activity_log.log(f"책/압축 파일 {name}: {'메모리' if to_ram else '디스크'}, 예상 {estimate / 1024 ** 2:.0f}MB")
         self.jobs.submit(lambda: self._extract(path, name, to_ram, before),
-                         lambda result, error: self._finish_one(result, error, estimate if to_ram else 0))
+                         lambda result, error: self._finish_one(result, error, estimate if to_ram else 0),
+                         label=name)
 
     def _ask_use_disk(self, estimate: int, limit: int) -> bool:
         return messagebox.askyesno(

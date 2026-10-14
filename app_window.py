@@ -124,3 +124,19 @@ class App:
         self.exporter.make_button(bar).pack(side=tk.RIGHT)
         self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))
         self.selected_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))
+
+    def state_summary(self) -> str:
+        """버그 리포트에 넣을 지금 상태(bug_report.py가 부름)."""
+        m = self.model
+        kinds = {}
+        for it in m.items.values():
+            kinds[it.kind] = kinds.get(it.kind, 0) + 1
+        try:
+            geo = self.root.winfo_geometry()
+            scaling = float(self.root.tk.call("tk", "scaling"))
+        except Exception:
+            geo, scaling = "?", 0.0
+        return (f"목록 {len(m.order)}장 {kinds} | 선택 {len(m.selected)} | 표지 {'있음' if m.cover_id else '없음'}"
+                f" | 메모리에 든 원본 {m.ram_bytes() / 1024 ** 2:.0f}MB\n"
+                f"불러오기 작업 대기/진행 {self.jobs.pending}개 (중단 표시 {self.jobs.cancelled()})"
+                f" | 보기 {self.view.view_mode_var.get()} | 창 {geo} | tk scaling {scaling:.2f}")

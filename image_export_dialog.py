@@ -11,6 +11,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import List, Optional
 
+import activity_log
+import bug_report
 import image_export
 from config import APP_TITLE
 from doc_model import DocModel
@@ -120,9 +122,9 @@ class ImageExporter:
                 result = image_export.write_plan(plan, progress)
                 self.root.after(0, lambda: self._on_done(plan, result, None))
             except Exception as e:
-                self.root.after(0, lambda: self._on_done(plan, None, e))
+                self.root.after(0, lambda e=e: self._on_done(plan, None, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=work, name="이미지내보내기", daemon=True).start()
 
     @staticmethod
     def rename_notice(renamed) -> str:
@@ -135,6 +137,10 @@ class ImageExporter:
                 "(압축 파일 안의 하위 폴더를 합치면서 이름이 겹쳤습니다.)\n" + shown)
 
     def _on_done(self, plan, result, error):
+        if error is not None:
+            bug_report.note_handled("전체 이미지 내보내기 실패", error)
+        else:
+            activity_log.log("전체 이미지 내보내기 끝")
         self._busy = False
         if self.button is not None:
             self.button.configure(state="normal")

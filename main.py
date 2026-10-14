@@ -15,25 +15,27 @@ from __future__ import annotations
 
 import tkinter as tk
 
-import crash_log
+import bug_report
 from app_window import App
 from config import HAS_DND, TkinterDnD
 
 
 def main():
+    bug_report.start()              # 활동 기록 + 충돌 기록 켜기, 지난번 비정상 종료 확인(bug_report.py)
     try:
         root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
     except Exception:
         # tkinterdnd2 초기화 실패 시 드래그앤드롭 없이라도 프로그램은 뜨도록 폴백
         root = tk.Tk()
-    root.report_callback_exception = crash_log.report_callback_exception
-    App(root)
+    app = App(root)
+    bug_report.attach(root, app.state_summary)   # 화면 쪽 오류 -> 버그 리포트, 멈춤 감시, 지난번 비정상 종료 알림
     root.mainloop()
+    bug_report.finish()             # 정상 종료 표시
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        crash_log.report_startup_failure()
+        bug_report.report_startup_failure()
         raise

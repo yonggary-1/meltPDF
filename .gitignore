@@ -11,6 +11,7 @@ dist/
 
 # 실행 중 생기는 파일
 crash_log.txt
+logs/
 settings.json
 
 # 배포용 압축 파일 / 빌드 산출물
