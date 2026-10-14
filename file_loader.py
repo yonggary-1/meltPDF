@@ -18,7 +18,7 @@ import pdf_core
 import pdf_meta
 from config import APP_TITLE, DND_FILES, HAS_DND
 from doc_model import DocModel
-from load_queue import LoadQueue
+from load_queue import LoadCancelled, LoadQueue
 from load_report import LoadResult
 from status_bar import StatusBar
 
@@ -143,13 +143,20 @@ class FileLoader:
         self.status.set("폴더에서 이미지 찾는 중...")
 
         def work():
-            paths = pdf_core.list_images_in_folder(folder, recursive=recursive)
+            paths = pdf_core.list_images_in_folder(folder, recursive=recursive, should_stop=self.jobs.cancelled)
+            if self.jobs.cancelled():
+                r = LoadResult()
+                r.cancelled = True
+                return r
             # 하위 폴더까지 넣으면 이름이 겹칠 수 있어(1권/001.jpg, 2권/001.jpg) 목록 이름을 폴더 기준 상대 경로로 한다(압축 파일과 같은 방식)
             labels = [Path(p).relative_to(folder).as_posix() for p in paths] if recursive else [Path(p).name for p in paths]
             return self._load_paths(paths, labels)
 
         def done(result, error):
-            if result is not None and not result.items and not result.errors and none_msg:
+            if isinstance(error, LoadCancelled):
+                self.status.refresh()
+                return
+            if result is not None and not result.items and not result.errors and none_msg and not result.cancelled:
                 messagebox.showinfo(APP_TITLE, none_msg)
                 self.status.refresh()
                 return
@@ -162,6 +169,9 @@ class FileLoader:
         result = LoadResult()
         total = len(paths)
         for n, (p, label) in enumerate(zip(paths, labels), start=1):
+            if self.jobs.cancelled():               # [중단]: 그때까지 읽은 이미지만 넣는다
+                result.cancelled = True
+                break
             try:
                 item = pdf_core.load_image_item(p)
                 item.label = label
@@ -180,9 +190,14 @@ class FileLoader:
         return result
 
     def _done_loading(self, result, error):
+        if isinstance(error, LoadCancelled):         # [중단]으로 시작도 하지 않은 작업
+            self.status.refresh()
+            return
         result = result if result else LoadResult(errors=[str(error)])
         self.model.add(result.items)
         self.status.refresh()
+        if result.cancelled:
+            self.status.set(f"불러오기를 중단했습니다. ({len(result.items)}장 불러옴)")
         load_report.show(result)
 
     def _load_pdf_async(self, path):
@@ -193,6 +208,9 @@ class FileLoader:
             return items, (pdf_meta.read_pdf_meta(path, Path(path).name) if items else None)
 
         def done(result, error):
+            if isinstance(error, LoadCancelled):           # [중단]으로 시작도 하지 않은 작업
+                self.status.refresh()
+                return
             if error:
                 messagebox.showerror(APP_TITLE, f"PDF를 여는 데 실패했습니다:\n{error}")
                 self.status.refresh()

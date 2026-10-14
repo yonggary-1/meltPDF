@@ -1,12 +1,14 @@
 """
 빈 목록 안내 - 목록이 비어 있을 때 작업 영역(썸네일 캔버스) 가운데에 "여기로 끌어다 놓으세요" 안내를 크게 보여 준다.
 항목이 하나라도 들어오면 지우고, 목록이 다시 비면 다시 보여 준다. 창 크기가 바뀌면 가운데로 다시 옮긴다.
-불러오기 작업이 진행 중이면(목록이 빈 동안) 안내 대신 "이미지 불러오는 중..."을 보여 준다.
+불러오기 작업이 진행 중이면(목록이 빈 동안) 안내 대신 "이미지 불러오는 중..."과 그 아래 [중단] 버튼을 보여 준다.
+[중단]을 누르면 불러오기를 멈추고 그때까지 읽은 이미지만 목록에 넣는다(load_queue.cancel).
 (예전에는 툴바 아래에 한 줄로 늘 떠 있었다. 순서 바꾸기 안내는 하단 상태 표시줄에 이미 있어서 여기에는 넣지 않는다.)
 """
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 
 from config import HAS_DND
 from doc_model import DocModel
@@ -33,6 +35,13 @@ class EmptyHint:
             jobs.on_busy_change(lambda busy: self.update())
         canvas.bind("<Configure>", lambda e: self.update(), add="+")     # 기존 크기 변경 처리(타일 재배치)는 그대로 두고 덧붙인다
         canvas.after_idle(self.update)
+        self._stop_btn = None
+
+    def _stop(self):
+        if self.jobs is not None:
+            self.jobs.cancel()
+            if self._stop_btn is not None:
+                self._stop_btn.state(["disabled"])        # 지금 읽던 한 장이 끝날 때까지 잠깐 걸릴 수 있다
 
     def update(self):
         c = self.canvas
@@ -46,8 +55,12 @@ class EmptyHint:
         y = c.canvasy(h / 2)
         wrap = max(200, w - 80)
         if self.jobs is not None and self.jobs.pending > 0:
-            c.create_text(x, y, text=LOADING, fill=COLOR, font=("", 16, "bold"), width=wrap,
-                          justify="center", anchor="center", tags=TAG)
+            c.create_text(x, y - 6, text=LOADING, fill=COLOR, font=("", 16, "bold"), width=wrap,
+                          justify="center", anchor="s", tags=TAG)
+            if self._stop_btn is None:
+                self._stop_btn = ttk.Button(c, text="중단", command=self._stop)
+            self._stop_btn.state(["!disabled"])
+            c.create_window(x, y + 6, window=self._stop_btn, anchor="n", tags=TAG)
             return
         c.create_text(x, y - 16, text=MAIN, fill=COLOR, font=("", 16, "bold"), width=wrap,
                       justify="center", anchor="s", tags=TAG)

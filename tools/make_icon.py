@@ -102,14 +102,60 @@ def draw(size: int) -> Image.Image:
     return out
 
 
+def _bmp_entry(im: Image.Image) -> bytes:
+    """ICO 안의 고전 방식 그림(32비트 BGRA DIB + AND 마스크). 탐색기 등 윈도우 구성 요소가 가장 확실히 읽는 형식."""
+    import struct
+    w, h = im.size
+    header = struct.pack("<IiiHHIIiiII", 40, w, h * 2, 1, 32, 0, 0, 0, 0, 0, 0)
+    px = im.convert("RGBA").load()
+    xor = bytearray()
+    for y in range(h - 1, -1, -1):                     # 아래 줄부터
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            xor += bytes((b, g, r, a))
+    row_bytes = ((w + 31) // 32) * 4
+    mask = bytearray()
+    for y in range(h - 1, -1, -1):
+        row = bytearray(row_bytes)
+        for x in range(w):
+            if px[x, y][3] == 0:                       # 완전히 투명한 곳만 1(그 밖은 알파값이 정함)
+                row[x // 8] |= 0x80 >> (x % 8)
+        mask += row
+    return header + bytes(xor) + bytes(mask)
+
+
+def write_ico(path: str, images) -> None:
+    """ICO 파일 쓰기: 256px는 PNG, 그보다 작은 크기는 고전 BMP 방식(Pillow 기본은 모든 크기를 PNG로 넣는다 -
+    v0.17.x에서 탐색기의 exe 아이콘이 바뀌지 않아 호환성이 가장 높은 이 방식으로 바꿈)."""
+    import io
+    import struct
+    blobs = []
+    for im in images:
+        if im.width >= 256:
+            b = io.BytesIO()
+            im.save(b, "PNG")
+            blobs.append(b.getvalue())
+        else:
+            blobs.append(_bmp_entry(im))
+    out = bytearray(struct.pack("<HHH", 0, 1, len(images)))
+    offset = 6 + 16 * len(images)
+    for im, data in zip(images, blobs):
+        w = 0 if im.width >= 256 else im.width
+        h = 0 if im.height >= 256 else im.height
+        out += struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(data), offset)
+        offset += len(data)
+    for data in blobs:
+        out += data
+    with open(path, "wb") as f:
+        f.write(out)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
     images = [draw(s) for s in sizes]
-    big = images[-1]
-    big.save(os.path.join(OUT, "meltPDF.ico"), format="ICO", sizes=[(s, s) for s in sizes],
-             append_images=images[:-1])
-    big.save(os.path.join(OUT, "meltPDF.png"))
+    write_ico(os.path.join(OUT, "meltPDF.ico"), images)
+    images[-1].save(os.path.join(OUT, "meltPDF.png"))
     return sizes, images
 
 

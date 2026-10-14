@@ -128,15 +128,17 @@ def _build_image_item(im: Image.Image, label: str, source_path: Optional[str],
     )
 
 
-def list_images_in_folder(folder: Union[str, Path], recursive: bool = False) -> List[str]:
+def list_images_in_folder(folder: Union[str, Path], recursive: bool = False, should_stop=None) -> List[str]:
     """폴더 안의 이미지 파일 경로들을 이름 순(자연 정렬: 2가 10보다 앞, 압축 파일과 같은 규칙)으로 돌려준다.
-    recursive이면 하위 폴더의 이미지도 모두 넣는다(폴더 단위로 비교 - 같은 폴더 파일끼리 모임). 맥이 만드는
+    recursive이면 하위 폴더의 이미지도 모두 넣는다(폴더 단위로 비교 - 같은 폴더 파일끼리 모임). should_stop()이 참이 되면 찾기를 멈춘다. 맥이 만드는
     __MACOSX 폴더와 "._" 파일은 뺀다. 바로가기(심볼릭 링크) 폴더는 따라가지 않는다."""
     from natural_sort import path_key
     folder = Path(folder)
     found: List[Tuple[str, str]] = []                      # (정렬용 상대 경로, 전체 경로)
     if recursive:
         for dirpath, dirnames, filenames in os.walk(folder):
+            if should_stop is not None and should_stop():     # [중단]
+                break
             dirnames[:] = [d for d in dirnames if d != "__MACOSX"]
             for name in filenames:
                 if not name.startswith("._") and Path(name).suffix.lower() in IMAGE_EXTS:

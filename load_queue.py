@@ -13,6 +13,10 @@ import tkinter as tk
 from typing import Any, Callable, Optional, Tuple
 
 
+class LoadCancelled(Exception):
+    """[중단]으로 시작하지 않고 버려진 작업에 on_done의 오류로 넘어간다(조용히 무시하면 됨)."""
+
+
 class LoadQueue:
     def __init__(self, root: tk.Misc):
         self.root = root
@@ -21,6 +25,25 @@ class LoadQueue:
         self._running = False
         self.pending = 0                  # 넣었지만 아직 결과(on_done)까지 끝나지 않은 작업 수 - 화면 스레드에서만 바꾼다
         self._busy_listeners = []         # 바쁨/한가함이 바뀔 때 부를 함수들(빈 목록 안내의 "이미지 불러오는 중..." 등)
+        self._cancel = threading.Event()  # [중단]: 지금 작업은 이것을 보고 멈추고(그때까지 읽은 것은 쓴다), 기다리던 작업은 버린다
+
+    def cancel(self):
+        """(화면 스레드) 불러오기 중단. 진행 중인 작업에는 멈추라고 알리고(cancelled()로 확인), 아직 시작하지 않은 작업은 버린다
+        (그 작업의 on_done에는 결과 None, 오류 LoadCancelled가 넘어간다)."""
+        self._cancel.set()
+        dropped = []
+        with self._lock:
+            while True:
+                try:
+                    dropped.append(self._jobs.get_nowait())
+                except queue.Empty:
+                    break
+        for _work, on_done in dropped:
+            self.root.after(0, lambda cb=on_done: cb(None, LoadCancelled()))
+
+    def cancelled(self) -> bool:
+        """(일꾼 스레드에서도 부름) 지금 작업이 [중단]되었는가."""
+        return self._cancel.is_set()
 
     def on_busy_change(self, fn: Callable[[bool], None]):
         self._busy_listeners.append(fn)
@@ -58,6 +81,7 @@ class LoadQueue:
                 except queue.Empty:
                     self._running = False
                     return
+            self._cancel.clear()               # 새 작업은 중단되지 않은 상태로 시작
             result, error = None, None
             try:
                 result = work()

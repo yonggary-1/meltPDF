@@ -23,7 +23,7 @@ from load_report import LoadResult
 from book_common import BookError
 from config import APP_TITLE
 from doc_model import DocModel
-from load_queue import LoadQueue
+from load_queue import LoadCancelled, LoadQueue
 from settings import Settings
 from status_bar import StatusBar
 
@@ -76,6 +76,7 @@ class BookLoader:
     def _extract(self, path: str, name: str, to_ram: bool) -> LoadResult:
         items: List[pdf_core.PageItem] = []
         meta = None
+        cancelled = False
         errors: List[str] = []
         notes: List[str] = []
         try:
@@ -91,6 +92,9 @@ class BookLoader:
             notes.extend(getattr(extracted, "notes", ()))      # 참고 안내(예: 끝이 잘린 zip을 복구해 읽음)
             errors.extend(getattr(extracted, "warnings", ()))   # 목록에 못 넣고 뺀 것에 대한 설명(손상된 이미지 안내는 아래에서 따로)
             for n, ex in enumerate(extracted, start=1):
+                if self.jobs.cancelled():          # [중단]: 그때까지 만든 항목만 넣는다
+                    cancelled = True
+                    break
                 try:
                     item = self._load_one(ex)
                     item.damaged = ex.damaged          # 압축 파일의 체크섬과 맞지 않던 이미지 - 타일에 빨간 테두리
@@ -110,8 +114,12 @@ class BookLoader:
                         f"{name} 썸네일 만드는 중... {n}/{t}"))
         except BookError as e:
             errors.append(f"{name}: {e}")
-        return LoadResult(items, errors, [it.label for it in items if it.damaged], name, notes,
-                          meta if items else None)        # 이미지를 하나도 넣지 못한 파일의 서지 정보는 쓰지 않는다
+        if cancelled:
+            errors = [e for e in errors if "이미지가 들어 있지 않습니다" not in e]
+        r = LoadResult(items, errors, [it.label for it in items if it.damaged], name, notes,
+                       meta if items else None)           # 이미지를 하나도 넣지 못한 파일의 서지 정보는 쓰지 않는다
+        r.cancelled = cancelled
+        return r
 
     @staticmethod
     def _load_one(ex) -> pdf_core.PageItem:
@@ -125,6 +133,9 @@ class BookLoader:
     # ---------------------------------------------------------- 결과 처리 (화면 스레드)
     def _finish_one(self, result, error, reserved_ram: int = 0):
         self._pending_ram = max(0, self._pending_ram - reserved_ram)
+        if isinstance(error, LoadCancelled):              # [중단]으로 시작도 하지 않은 작업
+            self.status.refresh()
+            return
         result = result if result else LoadResult(errors=[f"예상치 못한 오류: {error}"])
         self.model.offer_meta(result.meta)
         self.model.add(result.items)     # 완료 시 화면과 상태 표시줄이 모델 알림으로 갱신된다

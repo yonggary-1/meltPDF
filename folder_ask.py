@@ -2,7 +2,7 @@
 끌어다 놓은 폴더에 하위 폴더가 있을 때 묻는 작은 창 - "서브 폴더를 검색할까요?"
 
 - 폴더 바로 안에 이미지가 없을 때: "이미지가 없습니다. 서브 폴더를 검색할까요?" [검색] [취소]
-- 폴더 바로 안에 이미지가 있을 때: "이미지가 X장 있습니다. 서브 폴더를 검색할까요?" [검색] [확인]
+- 폴더 바로 안에 이미지가 있을 때: "이미지가 X장 있습니다. 서브 폴더를 추가로 검색할까요?" [검색] [확인]
 답을 받을 때까지 기다렸다가 돌려준다(끌어다 놓은 순서대로 처리하기 위해). 창을 그냥 닫거나 Esc는 "아무것도 안 함"이다.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ def ask(root: tk.Misc, folder_name: str, top_count: int) -> str:
     frm = ttk.Frame(win, padding=16)
     frm.pack(fill=tk.BOTH, expand=True)
     text = ("이미지가 없습니다. 서브 폴더를 검색할까요?" if top_count == 0
-            else f"이미지가 {top_count}장 있습니다. 서브 폴더를 검색할까요?")
+            else f"이미지가 {top_count}장 있습니다. 서브 폴더를 추가로 검색할까요?")
     ttk.Label(frm, text=text).pack(anchor="w")
     btns = ttk.Frame(frm)
     btns.pack(anchor="e", pady=(14, 0))
