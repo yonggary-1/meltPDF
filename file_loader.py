@@ -33,8 +33,10 @@ class FileLoader:
         self.model = model
         self.status = status
         # 다른 기능(책/압축 파일 등)이 "이 파일은 내가 처리할게"라고 끼어들 수 있는 자리.
-        # path를 받아 처리했으면 True를 돌려주는 함수를 넣는다.
+        # (path, before)를 받아 처리했으면 True를 돌려주는 함수를 넣는다(before: 이 항목 앞에 넣음, None이면 끝).
         self.extra_drop_handlers: list = []
+        # 끌어다 놓은 자리 -> 그 자리 뒤쪽 항목 id(그 앞에 넣음). 목록 중간 놓기 기능(file_drop_mark.py)이 채운다.
+        self.drop_anchor = None
 
     # ---------------------------------------------------------- 대화상자
     def open_files_dialog(self):
@@ -73,11 +75,14 @@ class FileLoader:
             paths = self.root.tk.splitlist(event.data)
         except Exception:
             paths = [event.data]
-        self.handle_paths([p.strip("{}") for p in paths])
+        # 목록 중간에 놓았으면 그 자리(파란 막대가 보이던 곳)의 뒤쪽 항목 - 그 앞에 넣는다(file_drop_mark.py)
+        before = self.drop_anchor(event) if self.drop_anchor is not None else None
+        self.handle_paths([p.strip("{}") for p in paths], before)
 
-    def handle_paths(self, paths):
+    def handle_paths(self, paths, before=None):
         """끌어다 놓거나 [파일 열기/추가]로 고른 경로들을 종류대로 처리한다: 폴더(바로 안의 이미지), 이미지, PDF(쪽),
-        압축/책 파일(extra_drop_handlers). 열 수 없는 형식은 건너뛰고 알린다."""
+        압축/책 파일(extra_drop_handlers). 열 수 없는 형식은 건너뛰고 알린다.
+        before(항목 id)를 주면 모두 그 항목 앞에 넣는다(놓은 순서 그대로). None이면 목록 끝."""
         # 넣은 순서를 지키기 위해, 이미지 파일들은 모아 뒀다가 다른 종류(PDF/책/폴더)를 만나기 직전에
         # 먼저 대기열에 넣는다.
         image_paths = []
@@ -85,23 +90,23 @@ class FileLoader:
 
         def flush_images():
             if image_paths:
-                self._load_images_async(list(image_paths))
+                self._load_images_async(list(image_paths), before=before)
                 image_paths.clear()
 
         for p in paths:
             if os.path.isdir(p):
                 flush_images()
-                self._handle_dropped_folder(p)
+                self._handle_dropped_folder(p, before)
             elif Path(p).suffix.lower() in pdf_core.IMAGE_EXTS:
                 self.model.note_source(Path(p).stem, str(Path(p).parent))
                 image_paths.append(p)
             else:
                 flush_images()
-                if any(handler(p) for handler in self.extra_drop_handlers):
+                if any(handler(p, before) for handler in self.extra_drop_handlers):
                     continue
                 if p.lower().endswith(".pdf"):
                     self.model.note_source(Path(p).stem, str(Path(p).parent))
-                    self._load_pdf_async(p)
+                    self._load_pdf_async(p, before)
                 else:
                     skipped.append(Path(p).name)
         flush_images()
@@ -109,7 +114,7 @@ class FileLoader:
             shown = "\n".join(skipped[:20]) + (f"\n... 외 {len(skipped) - 20}개" if len(skipped) > 20 else "")
             messagebox.showinfo(APP_TITLE, "열 수 없는 형식이라 건너뛴 파일:\n" + shown)
 
-    def _handle_dropped_folder(self, folder: str):
+    def _handle_dropped_folder(self, folder: str, before=None):
         """끌어다 놓은 폴더: (1) 이미지도 하위 폴더도 없음 -> 아무것도 안 함, (2) 이미지만 있음 -> 바로 불러옴,
         (3) 이미지 없이 하위 폴더만 -> "이미지가 없습니다. 서브 폴더를 검색할까요?" [검색]/[취소],
         (4) 이미지와 하위 폴더 모두 -> "이미지가 X장 있습니다. 서브 폴더를 검색할까요?" [검색]/[확인](바로 안의 X장만)."""
@@ -128,19 +133,19 @@ class FileLoader:
             return
         self.model.note_source(Path(folder).name, str(Path(folder).parent))
         if choice == folder_ask.SEARCH:
-            self._load_folder_async(folder, True, "서브 폴더에서도 이미지 파일을 찾지 못했습니다.")
+            self._load_folder_async(folder, True, "서브 폴더에서도 이미지 파일을 찾지 못했습니다.", before)
         else:
-            self._load_images_async(top)
+            self._load_images_async(top, before=before)
 
     # ---------------------------------------------------------- 백그라운드 로딩(대량 파일 대비)
     # 작업은 공용 대기열(LoadQueue)에 넣은 순서대로 하나씩 처리되고, 결과도 그 순서대로 목록에 붙는다.
-    def _load_images_async(self, paths, labels=None):
-        """labels: 목록에 보일 이름(없으면 파일 이름)."""
+    def _load_images_async(self, paths, labels=None, before=None):
+        """labels: 목록에 보일 이름(없으면 파일 이름). before: 이 항목 앞에 넣는다(None이면 끝)."""
         self.status.set(f"이미지 {len(paths)}개 불러오는 중...")
         labels = list(labels) if labels else [Path(p).name for p in paths]
-        self.jobs.submit(lambda: self._load_paths(paths, labels), self._done_loading)
+        self.jobs.submit(lambda: self._load_paths(paths, labels, before), self._done_loading)
 
-    def _load_folder_async(self, folder: str, recursive: bool, none_msg: str = ""):
+    def _load_folder_async(self, folder: str, recursive: bool, none_msg: str = "", before=None):
         """폴더 안 이미지 찾기(하위 폴더가 많으면 오래 걸릴 수 있음)부터 불러오기까지 일꾼 스레드에서 한다."""
         self.status.set("폴더에서 이미지 찾는 중...")
 
@@ -152,7 +157,7 @@ class FileLoader:
                 return r
             # 하위 폴더까지 넣으면 이름이 겹칠 수 있어(1권/001.jpg, 2권/001.jpg) 목록 이름을 폴더 기준 상대 경로로 한다(압축 파일과 같은 방식)
             labels = [Path(p).relative_to(folder).as_posix() for p in paths] if recursive else [Path(p).name for p in paths]
-            return self._load_paths(paths, labels)
+            return self._load_paths(paths, labels, before)
 
         def done(result, error):
             if isinstance(error, LoadCancelled):
@@ -166,13 +171,13 @@ class FileLoader:
 
         self.jobs.submit(work, done)
 
-    def _load_paths(self, paths, labels) -> LoadResult:
+    def _load_paths(self, paths, labels, before=None) -> LoadResult:
         """(일꾼 스레드) 이미지 파일들을 목록 항목으로 읽는다. 여러 장을 동시에 읽고(parallel_load), 읽은 순서가 아니라
         넣은 순서대로 몇십 장씩 목록에 먼저 넣는다(incremental_add). 진행 상황은 상태 표시줄에 "n/전체"로 알린다.
         돌려주는 결과의 items는 이미 목록에 들어간 것이다(완료 처리에서는 다시 넣지 않고 개수와 알림에만 쓴다)."""
         result = LoadResult()
         total = len(paths)
-        feed = incremental_add.Feeder(self.root, self.model, self.status)
+        feed = incremental_add.Feeder(self.root, self.model, self.status, before=before)
         jobs = list(zip(paths, labels))
         n = 0
         try:
@@ -206,7 +211,7 @@ class FileLoader:
             self.status.set(f"불러오기를 중단했습니다. ({len(result.items)}장 불러옴)")
         load_report.show(result)
 
-    def _load_pdf_async(self, path):
+    def _load_pdf_async(self, path, before=None):
         self.status.set(f"PDF 여는 중: {Path(path).name}")
 
         def work():
@@ -223,7 +228,7 @@ class FileLoader:
             else:
                 items, meta = result
                 self.model.offer_meta(meta)        # PDF의 서지 정보(문서 정보/XMP)
-                self.model.add(items)
+                self.model.add(items, before=before)
                 self.status.refresh()                  # 쪽이 하나도 없어 목록 알림이 없을 때도 "PDF 여는 중"을 지운다
 
         self.jobs.submit(work, done)

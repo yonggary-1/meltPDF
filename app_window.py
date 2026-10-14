@@ -20,6 +20,7 @@ from image_export_dialog import ImageExporter
 from image_viewer import ImageViewer
 from key_nav import KeyNav
 from load_queue import LoadQueue
+from file_drop_mark import FileDropMark
 from load_stop import LoadStopButton
 from meta_dialog import MetaDialog
 from page_actions import PageActions
@@ -72,6 +73,8 @@ class App:
         self._fill_toolbar()
         self._fill_bottom_bar()
         self.loader.register_drop_targets((self.view.canvas, root))
+        # 목록에 이미지가 있을 때 밖에서 끌어온 파일: 파란 막대로 놓을 자리를 보여 주고 그 자리에 넣는다
+        self.file_drop_mark = FileDropMark(self.view, self.model, self.loader)
 
     def _fill_toolbar(self):
         # 창 폭이 좁아지면 WrapBar가 알아서 다음 줄로 넘기므로, 버튼이 늘어도 add()만 추가하면 된다.
@@ -112,11 +115,11 @@ class App:
         ttk.Button(danger, text="선택 삭제", command=self.actions.delete_selected).pack(side=tk.LEFT)
         ttk.Button(danger, text="전체 삭제", command=self.actions.delete_all).pack(
             side=tk.LEFT, padx=(4, 0))
+        # 불러오는 중(목록에 이미 썸네일이 보일 때) [중단] - [전체 삭제] 옆
+        self.load_stop = LoadStopButton(danger, self.model, self.jobs)
         # 메모리 미터는 윗줄(상태 문구 줄)의 오른쪽 끝에 둔다 - 아랫줄에 내보내기 버튼이 셋이라 좁은 창에서 잘리지 않게.
         self.ram_meter = RamMeter(self.status.top_row)
         self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0), before=self.status.label)
-        # 불러오는 중(목록에 이미 이미지가 보일 때) [불러오기 중단] - 메모리 미터 왼쪽
-        self.load_stop = LoadStopButton(self.status.top_row, self.model, self.jobs, before=self.status.label)
         # pack을 RIGHT로 하면 먼저 둔 것이 맨 오른쪽: PDF로 내보내기, 전체 이미지 내보내기, 선택된 이미지 내보내기 순
         self.exporter.make_button(bar).pack(side=tk.RIGHT)
         self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))

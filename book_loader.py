@@ -41,14 +41,15 @@ class BookLoader:
         self._pending_ram = 0          # 대기열에서 처리를 기다리는 동안 메모리에 올라올 예정인 양
 
     # ---------------------------------------------------------- 들어오는 길
-    def handle_drop(self, path: str) -> bool:
-        """드래그앤드롭으로 들어온 파일이 내가 처리할 형식이면 받아 가고 True를 돌려준다."""
+    def handle_drop(self, path: str, before=None) -> bool:
+        """드래그앤드롭으로 들어온 파일이 내가 처리할 형식이면 받아 가고 True를 돌려준다.
+        before: 이 항목 앞에 넣는다(None이면 목록 끝)."""
         if os.path.isfile(path) and book_import.is_supported(path):
-            self._enqueue(path)
+            self._enqueue(path, before)
             return True
         return False
 
-    def _enqueue(self, path: str):
+    def _enqueue(self, path: str, before=None):
         name = Path(path).name
         estimate = book_import.estimate_image_bytes(path)
         # 메모리에 둘지 디스크에 둘지: 기본은 메모리, 너무 크면 사용자에게 묻는다(설정에서 바꿀 수 있음)
@@ -62,7 +63,7 @@ class BookLoader:
             self._pending_ram += estimate
         self.model.note_source(Path(path).stem, str(Path(path).parent))
         self.status.set(f"{name} 대기 중...")
-        self.jobs.submit(lambda: self._extract(path, name, to_ram),
+        self.jobs.submit(lambda: self._extract(path, name, to_ram, before),
                          lambda result, error: self._finish_one(result, error, estimate if to_ram else 0))
 
     def _ask_use_disk(self, estimate: int, limit: int) -> bool:
@@ -75,7 +76,7 @@ class BookLoader:
             f"('아니요'를 누르면 이 파일은 불러오지 않습니다. 설정에서 기본 동작을 바꿀 수 있습니다.)")
 
     # ---------------------------------------------------------- 백그라운드 처리 (일꾼 스레드)
-    def _extract(self, path: str, name: str, to_ram: bool) -> LoadResult:
+    def _extract(self, path: str, name: str, to_ram: bool, before=None) -> LoadResult:
         items: List[pdf_core.PageItem] = []
         meta = None
         cancelled = False
@@ -94,7 +95,7 @@ class BookLoader:
             notes.extend(getattr(extracted, "notes", ()))      # 참고 안내(예: 끝이 잘린 zip을 복구해 읽음)
             errors.extend(getattr(extracted, "warnings", ()))   # 목록에 못 넣고 뺀 것에 대한 설명(손상된 이미지 안내는 아래에서 따로)
             feed = incremental_add.Feeder(self.root, self.model, self.status,
-                                          before_first=lambda m=meta: self.model.offer_meta(m))
+                                          before_first=lambda m=meta: self.model.offer_meta(m), before=before)
             total = len(extracted)
             n = 0
             try:

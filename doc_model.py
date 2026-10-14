@@ -40,7 +40,8 @@ class DocModel:
         self.meta: BookMeta = BookMeta()
         self.meta_sources: List[BookMeta] = []
         self.meta_edited = False
-        self.appended_from: Optional[int] = None   # add() 알림 중에만: 새로 붙은 항목이 시작하는 자리
+        self.added_ids: Optional[Set[str]] = None   # add() 알림 중에만: 새로 넣은 항목 id들
+        self.added_at: Optional[int] = None         # add() 알림 중에만: 새 항목이 들어간 첫 자리
         self._listeners: Dict[str, List[Callable[[], None]]] = {
             "structure": [], "order": [], "selection": [],
         }
@@ -103,22 +104,31 @@ class DocModel:
     def _make_photo(item: pdf_core.PageItem) -> ImageTk.PhotoImage:
         return ImageTk.PhotoImage(Image.open(io.BytesIO(item.thumb_bytes)))
 
-    def add(self, items):
-        """항목을 끝에 붙인다. 알림을 보내는 동안 appended_from에 "붙이기 전 개수"를 적어 둬서, 화면이 새로 붙은 것만
-        그릴 수 있게 한다(불러오는 중에 몇십 장씩 자주 붙이므로 - incremental_add). 다른 "structure" 알림 때는 None."""
+    def add(self, items, before: Optional[str] = None):
+        """항목을 넣는다. before가 목록에 있는 항목 id면 그 항목 바로 앞에, 아니면(None, 이미 지워진 항목) 끝에 넣는다
+        (파일을 목록 중간에 끌어다 놓은 경우 - file_drop_mark.py. 같은 before로 여러 번 넣으면 넣은 순서대로 이어진다).
+        알림을 보내는 동안 added_ids에 새 항목 id들을 적어 둬서, 화면이 새 타일만 그리고 뒤쪽 타일만 옮기게 한다
+        (불러오는 중에 몇십 장씩 자주 넣으므로 - incremental_add). 다른 "structure" 알림 때는 None."""
         items = list(items)
         if not items:
             return
-        start = len(self.order)
+        try:
+            pos = self.order.index(before) if before is not None else len(self.order)
+        except ValueError:
+            pos = len(self.order)
+        new_ids = []
         for it in items:
             self.items[it.id] = it
             self.photo_cache[it.id] = self._make_photo(it)
-            self.order.append(it.id)
-        self.appended_from = start
+            new_ids.append(it.id)
+        self.order[pos:pos] = new_ids
+        self.added_ids = set(new_ids)
+        self.added_at = pos
         try:
             self._emit("structure")
         finally:
-            self.appended_from = None
+            self.added_ids = None
+            self.added_at = None
 
     def remove_selected(self):
         if not self.selected:

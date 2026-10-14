@@ -165,15 +165,19 @@ class TileView:
 
     def rebuild(self):
         """타일을 전부 지우고 다시 그린다 (항목 추가/삭제, 보기모드 전환, 표지 변경 등).
-        끝에 항목만 붙은 경우(불러오는 중의 묶음 추가)에는 이미 그린 타일은 두고 새 타일만 그린다."""
-        start = self.model.appended_from
+        항목만 새로 들어온 경우(불러오는 중의 묶음 추가, 중간에 끌어다 놓기)에는 이미 그린 타일은 두고 새 타일만 그린 뒤
+        그 뒤쪽 타일만 자리를 옮긴다."""
+        added, at = self.model.added_ids, self.model.added_at
         order = self.model.order
-        if (start is not None and start == len(self.tile_items)
-                and all(iid in self.tile_items for iid in order[:start])):
-            for idx in range(start, len(order)):
-                self._draw_tile(order[idx], idx)
-            self.update_scrollregion()
-            self._run_hooks()
+        if (added is not None and at is not None and len(self.tile_items) == len(order) - len(added)
+                and all(iid in self.tile_items or iid in added for iid in order)):
+            for idx, iid in enumerate(order[at:at + len(added)], start=at):
+                self._draw_tile(iid, idx)
+            if at + len(added) < len(order):
+                self.reflow(start=at + len(added))       # 중간에 넣었으면 뒤쪽 타일만 자리를 옮긴다
+            else:
+                self.update_scrollregion()
+                self._run_hooks()
             return
         self.canvas.delete("tile")
         self.tile_items = {}
@@ -182,10 +186,10 @@ class TileView:
         self.update_scrollregion()
         self._run_hooks()
 
-    def reflow(self):
-        """타일을 다시 만들지 않고 위치만 옮긴다 (창 크기 변경, 순서 변경 후)."""
+    def reflow(self, start: int = 0):
+        """타일을 다시 만들지 않고 위치만 옮긴다 (창 크기 변경, 순서 변경 후). start부터 뒤쪽만 옮길 수도 있다."""
         mode = self.view_mode_var.get()
-        for idx, iid in enumerate(self.model.order):
+        for idx, iid in enumerate(self.model.order[start:], start=start):
             items = self.tile_items.get(iid)
             if not items:
                 continue
