@@ -37,13 +37,8 @@ class WrapBar(tk.Frame):
             self._last_width = event.width
             self.relayout(width=event.width)
 
-    def relayout(self, width: Optional[int] = None):
-        if width is None:
-            width = self.winfo_width()
-        if width <= 1:
-            return
-
-        # 1단계: 위젯들을 폭에 맞춰 여러 줄로 나눈다.
+    def _split_rows(self, width: int) -> list:
+        """위젯들을 폭 width에 맞춰 여러 줄로 나눈 결과 [[(위젯, 폭, 앞 간격), ...], ...]."""
         rows: list = []
         current: list = []
         x = self._pad
@@ -63,6 +58,35 @@ class WrapBar(tk.Frame):
             x += extra + w + self._gap_x
         if current:
             rows.append(current)
+        return rows
+
+    def min_width_for_rows(self, max_rows: int) -> int:
+        """버튼들이 max_rows줄 이하로 들어가는 가장 좁은 폭(px). 글꼴/화면 배율마다 버튼 폭이 달라 실제 크기로 잰다."""
+        widths = []
+        for widget, _gap in self._items:
+            try:
+                widget.update_idletasks()
+                widths.append(widget.winfo_reqwidth())
+            except tk.TclError:
+                pass
+        lo = max(widths, default=0) + self._pad * 2
+        hi = sum(widths) + (self._gap_x + 16) * len(widths) + self._pad * 2
+        while lo < hi:                              # 줄 수는 폭이 넓을수록 줄어들기만 하므로 이분 탐색
+            mid = (lo + hi) // 2
+            if len(self._split_rows(mid)) <= max_rows:
+                hi = mid
+            else:
+                lo = mid + 1
+        return lo
+
+    def relayout(self, width: Optional[int] = None):
+        if width is None:
+            width = self.winfo_width()
+        if width <= 1:
+            return
+
+        # 1단계: 위젯들을 폭에 맞춰 여러 줄로 나눈다.
+        rows = self._split_rows(width)
 
         # 2단계: 각 줄의 높이(그 줄에서 가장 큰 위젯 기준)를 구해서 실제로 배치한다.
         y = self._pad

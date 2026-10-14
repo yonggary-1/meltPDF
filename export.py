@@ -24,9 +24,18 @@ class Exporter:
         self.status = status
         self.button = None
 
-    def make_button(self, parent: tk.Misc) -> ttk.Button:
-        """내보내기 버튼을 만들어 돌려준다 (어디에 배치할지는 부르는 쪽이 정한다)."""
-        self.button = ttk.Button(parent, text="PDF로 내보내기", command=self.export_pdf)
+    BIG_TEXT = "PDF 내보내기"          # 한글 화면 글자(영문 화면을 만들면 "PDF Print" - 사용자 지정)
+    BIG_STYLE = "BigExport.TButton"
+
+    def make_button(self, parent: tk.Misc, big: bool = False) -> ttk.Button:
+        """내보내기 버튼을 만들어 돌려준다 (어디에 배치할지는 부르는 쪽이 정한다).
+        big=True: 툴바 오른쪽 위에 두는 큰 버튼(큰 굵은 글씨, 높이는 툴바 두 줄 - v0.19.5)."""
+        if big:
+            style = ttk.Style(parent)
+            style.configure(self.BIG_STYLE, font=("", 12, "bold"), justify="center", anchor="center")
+            self.button = ttk.Button(parent, text=self.BIG_TEXT, style=self.BIG_STYLE, command=self.export_pdf)
+        else:
+            self.button = ttk.Button(parent, text="PDF로 내보내기", command=self.export_pdf)
         return self.button
 
     def export_pdf(self):
