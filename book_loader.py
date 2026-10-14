@@ -22,6 +22,7 @@ import damaged_image
 import incremental_add
 import parallel_load
 import load_report
+import ui_mailbox
 from load_report import LoadResult
 from book_common import BookError
 from config import APP_TITLE
@@ -88,7 +89,7 @@ class BookLoader:
         try:
             def progress(done: int, total: int):
                 if done == total or done % 5 == 0:
-                    self.root.after(0, lambda: self.status.set(
+                    ui_mailbox.post(lambda: self.status.set(
                         f"{name}에서 이미지 꺼내는 중... {done}/{total}"))
 
             extracted = book_import.extract_images(path, progress, to_ram)
@@ -114,7 +115,7 @@ class BookLoader:
                         feed.progress_text = f"{name} 썸네일 만드는 중... {n}/{total}"
                         feed.push(item)
                     if n % 5 == 0:
-                        self.root.after(0, lambda n=n, t=total: self.status.set(
+                        ui_mailbox.post(lambda n=n, t=total: self.status.set(
                             f"{name} 썸네일 만드는 중... {n}/{t}"))
             finally:
                 feed.finish()

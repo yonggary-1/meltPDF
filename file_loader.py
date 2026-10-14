@@ -19,6 +19,7 @@ import load_report
 import parallel_load
 import pdf_core
 import pdf_meta
+import ui_mailbox
 from config import APP_TITLE, DND_FILES, HAS_DND
 from doc_model import DocModel
 from load_queue import LoadCancelled, LoadQueue
@@ -202,7 +203,7 @@ class FileLoader:
                     feed.progress_text = f"이미지 불러오는 중... {n}/{total}"
                     feed.push(item)
                 if n % 10 == 0 or n == total:
-                    self.root.after(0, lambda n=n: self.status.set(f"이미지 불러오는 중... {n}/{total}"))
+                    ui_mailbox.post(lambda n=n: self.status.set(f"이미지 불러오는 중... {n}/{total}"))
         finally:
             feed.finish()
         if n < total and self.jobs.cancelled():         # [중단]: 그때까지 읽은 이미지만 넣는다

@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 import activity_log
 import bug_report
 import pdf_core
+import ui_mailbox
 from config import APP_TITLE
 from doc_model import DocModel
 from status_bar import StatusBar
@@ -54,9 +55,9 @@ class Exporter:
         def work():
             try:
                 pdf_core.export_pdf(ordered_items, out_path, cover_id=cover_id, meta=meta)
-                self.root.after(0, lambda: self._on_export_done(out_path, None))
+                ui_mailbox.post(lambda: self._on_export_done(out_path, None))
             except Exception as e:
-                self.root.after(0, lambda e=e: self._on_export_done(out_path, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
+                ui_mailbox.post(lambda e=e: self._on_export_done(out_path, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
 
         threading.Thread(target=work, name="PDF내보내기", daemon=True).start()
 

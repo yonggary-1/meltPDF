@@ -29,22 +29,33 @@ def _image_item_bytes(item) -> int:
     return cached
 
 
+class Accumulator:
+    """용량 합계를 이어서 셈한다: 항목이 들어올 때 들어온 것만 더한다(불러오는 중 묶음마다 목록 전체를 다시 세지 않게 - v0.19.3).
+    지우기 등 다른 변화가 있으면 새로 만들어 처음부터 센다."""
+
+    def __init__(self):
+        self.total = 0
+        self.approx = False
+        self._seen = set()
+
+    def add(self, items: Iterable) -> None:
+        for item in items:
+            if item.kind == "pdf_page":
+                self.approx = True
+                for xref, n in (item.page_images or {}).items():
+                    key = (item.origin_pdf, xref)
+                    if key not in self._seen:
+                        self._seen.add(key)
+                        self.total += n
+            else:
+                self.total += _image_item_bytes(item)
+
+
 def total_bytes(items: Iterable) -> Tuple[int, bool]:
     """(이미지 용량 합계, 어림값인가). PDF 쪽이 섞여 있으면 어림값."""
-    total = 0
-    approx = False
-    seen = set()
-    for item in items:
-        if item.kind == "pdf_page":
-            approx = True
-            for xref, n in (item.page_images or {}).items():
-                key = (item.origin_pdf, xref)
-                if key not in seen:
-                    seen.add(key)
-                    total += n
-        else:
-            total += _image_item_bytes(item)
-    return total, approx
+    acc = Accumulator()
+    acc.add(items)
+    return acc.total, acc.approx
 
 
 def fmt_size(n: int) -> str:

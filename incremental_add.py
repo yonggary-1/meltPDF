@@ -4,7 +4,7 @@
 - 일꾼 스레드에서 push(항목)로 하나씩 넘기면, BATCH장이 모이거나 INTERVAL초가 지날 때마다 화면 스레드로 넘겨
   model.add(묶음)을 부른다(타일 화면은 새로 붙은 타일만 그린다 - tile_view.rebuild 참고).
 - 작업이 끝나면 일꾼 스레드에서 finish()를 불러 남은 것까지 넘긴다. 대기열(load_queue)의 완료 알림(on_done)은
-  그 뒤에 화면 스레드로 넘어가므로(같은 root.after 줄에서 넣은 순서대로 실행됨) on_done이 불릴 때는 항목이 이미 다 들어가 있다.
+  그 뒤에 화면 스레드로 넘어가므로(같은 우편함 ui_mailbox에서 넣은 순서대로 실행됨) on_done이 불릴 때는 항목이 이미 다 들어가 있다.
 - before(항목 id)를 주면 끝이 아니라 그 항목 앞에 넣는다. 묶음마다 같은 항목 앞에 넣으므로 순서가 그대로 이어진다.
   도중에 그 항목이 지워지면 앞서 넣은 항목 바로 뒤에 이어 넣는다(앞서 넣은 것도 없으면 끝).
 - 처음 묶음을 넣기 직전에 before_first()를 한 번 부른다(책 파일의 서지 정보를 알리는 데 쓴다).
@@ -17,6 +17,7 @@ import time
 from typing import Callable, List, Optional
 
 import activity_log
+import ui_mailbox
 
 BATCH = 24            # 한 번에 넣는 최대 장수(너무 잘게 넣으면 화면 갱신이 잦아져 오히려 느려진다)
 INTERVAL = 0.4        # 이만큼 지나면 덜 모였어도 넣는다(큰 이미지를 천천히 읽을 때도 화면이 움직이게)
@@ -56,7 +57,7 @@ class Feeder:
         self.count += len(batch)
         first, self._first = self._first, False
         text = self.progress_text
-        self.root.after(0, lambda: self._add_on_ui(batch, first, text))
+        ui_mailbox.post(lambda: self._add_on_ui(batch, first, text))
 
     def _add_on_ui(self, batch, first: bool, text: Optional[str]) -> None:
         if first and self.before_first is not None:

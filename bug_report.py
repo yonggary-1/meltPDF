@@ -31,6 +31,7 @@ from tkinter import messagebox
 from typing import Callable, Optional
 
 import activity_log
+import ui_mailbox
 from config import APP_NAME, APP_TITLE, APP_VERSION
 
 FATAL_NAME = "meltPDF_fatal.txt"
@@ -253,7 +254,7 @@ def _on_thread_exception(args):
     path = write_report(f"스레드({name}) 오류", text)
     if _root is not None:
         try:
-            _root.after(0, lambda: _tell(f"작업 중 예상치 못한 오류가 발생했습니다:\n{args.exc_type.__name__}: {args.exc_value}", path))
+            ui_mailbox.post(lambda: _tell(f"작업 중 예상치 못한 오류가 발생했습니다:\n{args.exc_type.__name__}: {args.exc_value}", path))
         except Exception:
             pass
 

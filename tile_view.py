@@ -10,6 +10,9 @@ Tk는 위젯 하나하나가 OS의 독립된 자식 창이라, 위젯끼리 겹�
 
 모델의 알림을 받아 스스로 갱신한다:
   structure -> rebuild()  /  order -> reflow()  /  selection -> refresh_colors()
+
+캔버스에는 보이는 곳과 위아래 한 화면 분량의 타일만 그려 두고, 스크롤하면 바꿔 그린다(v0.19.3). 목록이 수천 장이어도
+화면 쪽 일은 그려 둔 수십 개만큼이다. 타일 위치는 번호로 계산하므로(tile_rect, tile_at) 그려 두지 않은 타일도 눌러/끌어 놓을 자리를 안다.
 """
 from __future__ import annotations
 
@@ -20,16 +23,23 @@ from typing import Callable, Dict, List, Optional
 
 import pdf_core
 from config import (
-    BG_COVER, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_X, GRID_PITCH_Y, LIST_PITCH_Y,
+    BG_COVER, BG_DRAGGING, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_X, GRID_PITCH_Y, LIST_PITCH_Y,
     LIST_TILE_H, MARGIN, THUMB_MAX, TILE_H, TILE_W,
 )
 from doc_model import DocModel
+
+WINDOW_MARGIN = 1.0       # 보이는 곳 위아래로 이만큼(화면 높이 배수) 더 그려 둔다(스크롤이 매끄럽게)
 
 
 class TileView:
     def __init__(self, parent: tk.Misc, model: DocModel):
         self.model = model
-        self.tile_items: Dict[str, Dict[str, int]] = {}   # iid -> {역할: 캔버스 아이템 id}
+        # 캔버스에 그려 둔 타일(그릴 범위 안의 것만): iid -> {"idx": 자리, 역할: 캔버스 아이템 id}
+        self.tile_items: Dict[str, Dict[str, int]] = {}
+        self._drawn_key = None              # 지금 그려 둔 범위/배치(스크롤 때 바뀌었는지 보려고)
+        self._sync_pending = False
+        self._region = None                 # 마지막으로 설정한 스크롤 영역
+        self.dragging_iid: Optional[str] = None   # 끌고 있는 타일(회색) - drag_reorder.py가 정한다
         self._last_cols: Optional[int] = None
         # 타일을 다시 그린 직후에 불려야 하는 함수들(예: 드래그 표시를 맨 위로 올리기).
         # 다른 기능이 여기 함수를 등록하기만 하면 되고, 이 파일은 그 기능을 몰라도 된다.
@@ -42,8 +52,6 @@ class TileView:
         self.canvas = tk.Canvas(self.frame, highlightthickness=0, bg=BG_NORMAL, takefocus=1)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.vsb = ttk.Scrollbar(self.frame, orient="vertical", command=self.canvas.yview)
-        # 스크롤할 때마다 알릴 함수들(보이는 타일에만 썸네일 그림 붙이기 - visible_thumbs.py)
-        self.scroll_hooks: List[Callable[[], None]] = []
         self.canvas.configure(yscrollcommand=self._on_yscroll)
         # 스크롤바를 캔버스 "옆"(pack)이 아니라 캔버스 "위"에 겹쳐서 고정 배치한다. 캔버스가
         # 창 오른쪽 끝까지 차지해야 드래그 중 표시(유령 썸네일)도 끝까지 갈 수 있다.
@@ -86,9 +94,10 @@ class TileView:
     def update_scrollregion(self):
         """스크롤 영역은 타일 내용만 기준으로 직접 계산한다. bbox("all")을 쓰면 드래그 중에만
         잠깐 존재하는 유령/삽입 막대까지 포함되어 스크롤 범위가 멋대로 늘었다 줄었다 한다."""
-        self.canvas.configure(
-            scrollregion=(0, 0, self.layout_width(), max(self.content_height(), 1))
-        )
+        region = (0, 0, self.layout_width(), max(self.content_height(), 1))
+        if region != self._region:          # 같은 값으로 다시 설정하면 스크롤 알림 -> 다시 그리기가 되풀이된다
+            self._region = region
+            self.canvas.configure(scrollregion=region)
 
     def tile_rect(self, idx: int) -> tuple:
         """idx번째 자리의 (x, y, 폭, 높이). 위젯 크기를 재지 않고 코드가 직접 계산하므로
@@ -123,8 +132,7 @@ class TileView:
     # ---------------------------------------------------------- 스크롤 / 창 크기
     def _on_yscroll(self, first, last):
         self.vsb.set(first, last)
-        for fn in self.scroll_hooks:
-            fn()
+        self._schedule_sync()          # 스크롤하면 그릴 범위가 바뀐다
 
     def _on_canvas_resize(self, event):
         cols = self.cols()
@@ -132,6 +140,8 @@ class TileView:
             if cols != self._last_cols:
                 self._last_cols = cols
                 self.reflow()
+            else:
+                self._schedule_sync()  # 높이만 바뀌면 그릴 범위만 다시 본다
         else:
             self.reflow()  # 목록형은 줄 폭이 창 폭을 따라가므로 폭이 바뀌면 다시 그린다
 
@@ -150,8 +160,40 @@ class TileView:
             self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
         return "break"
 
+    # ---------------------------------------------------------- 그릴 범위
+    def window_range(self) -> range:
+        """캔버스에 실제로 그려 둘 타일 번호 범위: 보이는 곳 + 위아래 WINDOW_MARGIN 화면."""
+        c = self.canvas
+        n = len(self.model.order)
+        h = max(c.winfo_height(), 1)
+        top = c.canvasy(0) - h * WINDOW_MARGIN
+        bottom = c.canvasy(h) + h * WINDOW_MARGIN
+        if self.view_mode_var.get() == "grid":
+            cols = self.cols()
+            r0 = max(int((top - MARGIN) // GRID_PITCH_Y), 0)
+            r1 = max(int((bottom - MARGIN) // GRID_PITCH_Y) + 1, 0)
+            return range(min(r0 * cols, n), min(r1 * cols, n))
+        i0 = max(int((top - MARGIN) // LIST_PITCH_Y), 0)
+        i1 = max(int((bottom - MARGIN) // LIST_PITCH_Y) + 1, 0)
+        return range(min(i0, n), min(i1, n))
+
+    def _schedule_sync(self):
+        if self._sync_pending:
+            return
+        self._sync_pending = True
+        try:
+            self.canvas.after_idle(self._sync_idle)
+        except tk.TclError:
+            self._sync_pending = False
+
+    def _sync_idle(self):
+        self._sync_pending = False
+        self._sync(force=False)
+
     # ---------------------------------------------------------- 타일 그리기
     def _tile_bg(self, iid: str) -> str:
+        if iid == self.dragging_iid:
+            return BG_DRAGGING
         if iid == self.model.cover_id:
             return BG_COVER
         if iid in self.model.selected:
@@ -171,49 +213,49 @@ class TileView:
         return f"{item.width}x{item.height}pt (원본 그대로)"
 
     def rebuild(self):
-        """타일을 전부 지우고 다시 그린다 (항목 추가/삭제, 보기모드 전환, 표지 변경 등).
-        항목만 새로 들어온 경우(불러오는 중의 묶음 추가, 중간에 끌어다 놓기)에는 이미 그린 타일은 두고 새 타일만 그린 뒤
-        그 뒤쪽 타일만 자리를 옮긴다."""
+        """목록 내용이 바뀜(추가/삭제, 표지, 이름, 보기 모드) -> 그릴 범위의 타일을 새로 그린다.
+        그려 둔 범위보다 뒤에 항목만 들어왔으면(보통의 불러오기) 그려 둔 타일은 그대로 두고 스크롤 영역만 늘린다."""
         added, at = self.model.added_ids, self.model.added_at
-        order = self.model.order
-        if (added is not None and at is not None and len(self.tile_items) == len(order) - len(added)
-                and all(iid in self.tile_items or iid in added for iid in order)):
-            for idx, iid in enumerate(order[at:at + len(added)], start=at):
-                self._draw_tile(iid, idx)
-            if at + len(added) < len(order):
-                self.reflow(start=at + len(added))       # 중간에 넣었으면 뒤쪽 타일만 자리를 옮긴다
-            else:
-                self.update_scrollregion()
-                self._run_hooks()
+        if added is not None and at is not None and self._drawn_key is not None and at >= self._drawn_key[1]:
+            self._sync(force=False)
             return
-        self.canvas.delete("tile")
-        self.tile_items = {}
-        for idx, iid in enumerate(self.model.order):
-            self._draw_tile(iid, idx)
-        self.update_scrollregion()
-        self._run_hooks()
+        self._sync(force=True)
 
     def reflow(self, start: int = 0):
-        """타일을 다시 만들지 않고 위치만 옮긴다 (창 크기 변경, 순서 변경 후). start부터 뒤쪽만 옮길 수도 있다."""
-        mode = self.view_mode_var.get()
-        for idx, iid in enumerate(self.model.order[start:], start=start):
-            items = self.tile_items.get(iid)
-            if not items:
-                continue
-            x, y, w, h = self.tile_rect(idx)
-            self.canvas.coords(items["rect"], x, y, x + w, y + h)
-            if items["img"] is not None:
-                self.canvas.coords(items["img"], *self.img_pos(idx))
-            if mode == "grid":
-                self.canvas.coords(items["text"], x + w / 2, y + THUMB_MAX + 14)
-            else:
-                tx = x + THUMB_MAX + 24
-                self.canvas.coords(items["text"], tx, y + h / 2 - 10)
-                self.canvas.coords(items["meta"], tx, y + h / 2 + 12)
-                wrap = max(60, w - (THUMB_MAX + 34))
-                self.canvas.itemconfigure(items["text"], width=wrap)
-                self.canvas.itemconfigure(items["meta"], width=wrap)
+        """순서나 창 크기가 바뀜 -> 그릴 범위의 타일을 새 자리에 다시 그린다(start는 예전 호환용, 쓰지 않음)."""
+        self._sync(force=True)
+
+    def _sync(self, force: bool):
+        """캔버스에는 그릴 범위(보이는 곳 + 위아래 한 화면)의 타일만 둔다(v0.19.3).
+
+        예전에는 모든 항목의 타일(테두리, 썸네일, 글자)을 캔버스에 두고, 항목이 들어올 때마다 뒤쪽 타일 수천 개를 옮겼다.
+        목록이 수천 장이 되면 묶음 하나 넣는 데 화면 스레드가 0.1초 넘게 걸려, 불러오기 스레드가 화면 스레드를 기다리느라
+        거의 멈춘 것처럼 느려졌다(CPU와 메모리는 남아 있는데 느림 - 화면 스레드 하나만 바빴음).
+        이제 무엇을 바꾸든 화면에 그려 둔 수십 개만 다시 그리므로 목록 장수와 상관없이 걸리는 시간이 같다.
+        force=False(스크롤)일 때는 범위가 그대로면 아무것도 하지 않고, 범위를 벗어난 타일만 지우고 새로 들어온 타일만 그린다."""
         self.update_scrollregion()
+        order = self.model.order
+        rng = self.window_range()
+        key = (rng.start, rng.stop, len(order), self.view_mode_var.get(), self.cols(), self.layout_width())
+        if not force and key == self._drawn_key:
+            return
+        want = {order[i]: i for i in rng}
+        old = set(self.tile_items)
+        c = self.canvas
+        if force:
+            c.delete("tile")
+            self.tile_items = {}
+        else:
+            for iid in [k for k, it in self.tile_items.items() if want.get(k) != it["idx"]]:
+                ids = [v for k2, v in self.tile_items.pop(iid).items() if k2 != "idx" and v is not None]
+                if ids:
+                    c.delete(*ids)
+        for iid, idx in want.items():
+            if iid not in self.tile_items:
+                self._draw_tile(iid, idx)
+        for iid in old - set(want):
+            self.model.release_photo(iid)        # 화면 그림(윈도우 그래픽 자원)은 그려 둔 타일 것만 들고 있는다
+        self._drawn_key = key
         self._run_hooks()
 
     def img_pos(self, idx: int) -> tuple:
@@ -224,20 +266,19 @@ class TileView:
         return (x + 6 + (THUMB_MAX + 8) / 2, y + h / 2)
 
     def _draw_tile(self, iid: str, idx: int):
-        """타일의 테두리와 글자만 그린다. 썸네일 그림은 화면에 보이는 타일에만 visible_thumbs.py가 붙인다
-        (수천 장의 썸네일을 모두 화면 그림으로 만들면 윈도우 그래픽 자원/메모리가 바닥나 프로그램이 꺼졌다 - v0.19.2)."""
         item = self.model.items[iid]
+        photo = self.model.photo(iid)
         bg = self._tile_bg(iid)
         cover_mark = "★ " if iid == self.model.cover_id else ""
         x, y, w, h = self.tile_rect(idx)
         tag = ("tile", f"tile:{iid}")
         c = self.canvas
         damaged = getattr(item, "damaged", False)        # 손상된 이미지: 빨간 굵은 테두리
-        items = {"rect": c.create_rectangle(x, y, x + w, y + h, fill=bg,
+        items = {"idx": idx,
+                 "rect": c.create_rectangle(x, y, x + w, y + h, fill=bg,
                                             outline=DAMAGED_OUTLINE if damaged else "#9a9a9a",
                                             width=DAMAGED_OUTLINE_W if damaged else 1, tags=tag)}
-
-        items["img"] = None
+        items["img"] = c.create_image(*self.img_pos(idx), image=photo, tags=tag) if photo is not None else None
         if self.view_mode_var.get() == "grid":
             items["text"] = c.create_text(
                 x + w / 2, y + THUMB_MAX + 14, anchor="n", justify="center",

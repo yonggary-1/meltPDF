@@ -14,6 +14,7 @@ from typing import List, Optional
 import activity_log
 import bug_report
 import image_export
+import ui_mailbox
 from config import APP_TITLE
 from doc_model import DocModel
 from settings import Settings
@@ -115,14 +116,14 @@ class ImageExporter:
         self.status.set("이미지 저장 중...")
 
         def progress(done: int, total: int):
-            self.root.after(0, lambda: self.status.set(f"이미지 저장 중... {done}/{total}"))
+            ui_mailbox.post(lambda: self.status.set(f"이미지 저장 중... {done}/{total}"))
 
         def work():
             try:
                 result = image_export.write_plan(plan, progress)
-                self.root.after(0, lambda: self._on_done(plan, result, None))
+                ui_mailbox.post(lambda: self._on_done(plan, result, None))
             except Exception as e:
-                self.root.after(0, lambda e=e: self._on_done(plan, None, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
+                ui_mailbox.post(lambda e=e: self._on_done(plan, None, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
 
         threading.Thread(target=work, name="이미지내보내기", daemon=True).start()
 

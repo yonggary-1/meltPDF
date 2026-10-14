@@ -14,6 +14,7 @@ import traceback
 from typing import Any, Callable, Optional, Tuple
 
 import activity_log
+import ui_mailbox
 
 
 class LoadCancelled(Exception):
@@ -45,7 +46,7 @@ class LoadQueue:
         if dropped:
             activity_log.log(f"기다리던 작업 {len(dropped)}개 취소")
         for _work, on_done in dropped:
-            self.root.after(0, lambda cb=on_done: cb(None, LoadCancelled()))
+            ui_mailbox.post(lambda cb=on_done: cb(None, LoadCancelled()))
 
     def cancelled(self) -> bool:
         """(일꾼 스레드에서도 부름) 지금 작업이 [중단]되었는가."""
@@ -117,4 +118,4 @@ class LoadQueue:
                 result = work()
             except BaseException as e:      # 일꾼 스레드가 죽지 않게 모두 잡아서 화면 쪽으로 넘긴다
                 error = e
-            self.root.after(0, lambda r=result, e=error, cb=on_done: cb(r, e))
+            ui_mailbox.post(lambda r=result, e=error, cb=on_done: cb(r, e))

@@ -15,7 +15,7 @@ import tkinter as tk
 from typing import Optional
 
 import drop_slot
-from config import BG_DRAGGING, DRAG_THRESHOLD, DROP_MARK
+from config import DRAG_THRESHOLD, DROP_MARK
 from doc_model import DocModel
 from tile_view import TileView
 
@@ -71,6 +71,7 @@ class DragReorder:
             return
         iid, was_dragging, idx = d["iid"], d.get("dragging"), d.get("last_idx")
         self._clear_drag_items()
+        self.view.dragging_iid = None
         self._drag = {}
         if was_dragging:
             if idx is not None:
@@ -80,9 +81,8 @@ class DragReorder:
     # ---------------------------------------------------------- 드래그 표시
     def _start_drag_visual(self, iid: str):
         """드래그 시작 - 잡은 타일은 회색으로 바꾸고, 커서를 따라다닐 유령 썸네일을 만든다."""
-        items = self.view.tile_items.get(iid)
-        if items:
-            self.canvas.itemconfigure(items["rect"], fill=BG_DRAGGING)
+        self.view.dragging_iid = iid          # 잡은 타일은 회색(다시 그려져도 회색 유지)
+        self.view.refresh_colors()
         if not self.ghost_var.get():
             return
         photo = self.model.photo(iid)

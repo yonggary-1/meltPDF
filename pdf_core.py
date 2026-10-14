@@ -104,7 +104,15 @@ def load_image_item(path: Union[str, Path]) -> PageItem:
     """
     path = str(path)
     with Image.open(path) as im:
-        return _build_image_item(im, Path(path).name, source_path=path, original_bytes=None)
+        item = _build_image_item(im, Path(path).name, source_path=path, original_bytes=None)
+    if item.source_path:
+        # 상태 표시줄 용량 계산(size_info)이 화면 스레드에서 파일 크기를 묻지 않게, 읽는 김에 여기서(일꾼 스레드) 재 둔다.
+        # 윈도우에서는 파일 크기 묻기가 느릴 수 있어 수천 장이면 화면이 버벅였다(v0.19.3).
+        try:
+            item._disk_bytes = os.path.getsize(path)
+        except OSError:
+            pass
+    return item
 
 
 def load_image_item_from_bytes(data: bytes, label: str) -> PageItem:

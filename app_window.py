@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import app_icon
+import ui_mailbox
 from book_loader import BookLoader
 from config import WINDOW_TITLE
 from doc_model import DocModel
@@ -22,7 +23,6 @@ from key_nav import KeyNav
 from load_queue import LoadQueue
 from file_drop_mark import FileDropMark
 from load_stop import LoadStopButton
-from visible_thumbs import VisibleThumbs
 from meta_dialog import MetaDialog
 from page_actions import PageActions
 from ram_meter import RamMeter
@@ -57,8 +57,8 @@ class App:
         self.selection = Selection(self.view, self.model)
         self.keynav = KeyNav(self.view, self.model)
         self.drag = DragReorder(root, self.view, self.model)
-        self.thumbs = VisibleThumbs(self.view, self.model)   # 보이는 타일에만 썸네일 그림(수천 장에서도 그래픽 자원을 아낌)
         self.viewer = ImageViewer(root, self.model, self.view)      # 썸네일 두 번 누름/Enter -> 원본 크기로 보는 창
+        ui_mailbox.start(root)             # 일꾼 스레드 -> 화면 스레드 우편함(넘기는 쪽이 기다리지 않음)
         self.jobs = LoadQueue(root)        # 불러오기 작업을 넣은 순서대로 처리하는 공용 대기열
         self.empty_hint = EmptyHint(self.view.canvas, self.model, self.jobs)   # 목록이 비었을 때 가운데 안내(불러오는 중 표시 포함)
         self.loader = FileLoader(root, self.model, self.status, self.jobs, self.settings)
