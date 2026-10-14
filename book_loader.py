@@ -86,6 +86,8 @@ class BookLoader:
         cancelled = False
         errors: List[str] = []
         notes: List[str] = []
+        unreadable: List[str] = []                 # 전혀 못 읽어 X 표시로 넣은 이미지("이름: 이유")
+        repaired: List[str] = []                   # 머리 부분을 복구해 읽은 이미지
         try:
             def progress(done: int, total: int):
                 if done == total or done % 5 == 0:
@@ -108,10 +110,14 @@ class BookLoader:
                                                            should_stop=self.jobs.cancelled):
                     n += 1
                     ex.data = None                 # 메모리 사본을 일찍 놓아준다(항목이 필요한 만큼만 들고 있음)
-                    if err is not None:
+                    if err is not None:                  # (예상 밖의 오류 - 보통은 못 읽는 이미지도 X 표시 항목으로 들어온다)
                         errors.append(f"{ex.label}: {damaged_image.unreadable_reason(err)}")
                     else:
                         items.append(item)
+                        if item.unreadable:
+                            unreadable.append(f"{ex.label}: {getattr(item, 'unreadable_reason', '')}")
+                        elif getattr(item, "repaired", False):
+                            repaired.append(ex.label)
                         feed.progress_text = f"{name} 썸네일 만드는 중... {n}/{total}"
                         feed.push(item)
                     if n % 5 == 0:
@@ -124,15 +130,18 @@ class BookLoader:
             errors.append(f"{name}: {e}")
         if cancelled:
             errors = [e for e in errors if "이미지가 들어 있지 않습니다" not in e]
-        r = LoadResult(items, errors, [it.label for it in items if it.damaged], name, notes,
+        r = LoadResult(items, errors, [it.label for it in items if it.damaged and not it.unreadable
+                                       and not getattr(it, "repaired", False)], name, notes,
                        meta if items else None)           # 이미지를 하나도 넣지 못한 파일의 서지 정보는 쓰지 않는다
         r.cancelled = cancelled
+        r.unreadable = unreadable
+        r.repaired = repaired
         return r
 
     @classmethod
     def _load_or_damaged(cls, ex) -> pdf_core.PageItem:
         """(동시 처리 스레드) 꺼낸 이미지 하나 -> 목록 항목. 정상으로 못 읽으면(압축 파일 안에서 깨진 이미지 등)
-        읽을 수 있는 부분이라도 불러온다. 그것도 안 되면 원래 오류를 낸다."""
+        읽을 수 있는 부분이라도 불러온다. 그것도 안 되면 X 표시 상자 항목으로 넣는다(v0.19.6 - 못 읽어도 무조건 넣음)."""
         try:
             item = cls._load_one(ex)
             item.damaged = ex.damaged          # 압축 파일의 체크섬과 맞지 않던 이미지 - 타일에 빨간 테두리
@@ -141,7 +150,10 @@ class BookLoader:
             try:
                 bad = damaged_image.load_damaged_item(ex.label, data=ex.data, path=ex.path)
             except Exception:
-                raise e
+                item = damaged_image.recover(ex.label, data=ex.data, path=ex.path, exc=e)   # 머리 부분 복구 시도 -> 안 되면 X 표시
+                if item.unreadable and getattr(ex, "unreadable_reason", ""):
+                    item.unreadable_reason = ex.unreadable_reason
+                return item
             bad.damaged = True
             return bad
 

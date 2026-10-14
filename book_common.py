@@ -25,6 +25,13 @@ class ExtractedImage:
     data: Optional[bytes] = None     # 메모리에 둔 경우
     path: Optional[str] = None       # 디스크 임시 폴더에 둔 경우
     damaged: bool = False            # 압축 파일의 체크섬과 맞지 않는(깨진) 이미지 - 읽을 수 있는 부분만이라도 쓴다
+    unreadable_reason: str = ""      # 꺼내지도 못한 이미지(빈 data로 넣음) - 목록에 X 표시 상자로 넣을 때 보여줄 이유(v0.19.6)
+
+
+def unreadable_entry(label: str, reason: str) -> "ExtractedImage":
+    """꺼내지 못한 이미지도 목록에 넣기 위한 빈 항목(사용자 요청 v0.19.6: 못 읽는 파일도 무조건 넣는다).
+    book_loader가 읽기에 실패하면 X 표시 상자 항목으로 만든다."""
+    return ExtractedImage(label=label, data=b"", damaged=True, unreadable_reason=reason)
 
 
 class ExtractResult(list):

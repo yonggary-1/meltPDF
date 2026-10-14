@@ -53,13 +53,19 @@ class Exporter:
             return
 
         ordered_items = [model.items[iid] for iid in model.order]
+        # 전혀 못 읽은 이미지(X 표시)는 그 자리에 빈 쪽으로 넣고(pdf_core), 끝난 뒤 알린다(v0.19.6)
+        skipped = [it.label for it in ordered_items if it.unreadable]
+        if len(skipped) == len(ordered_items):
+            messagebox.showwarning(APP_TITLE, "PDF에 넣을 수 있는 이미지가 없습니다(모두 읽지 못한 이미지입니다).")
+            return
+        self._skipped = skipped
         cover_id = model.cover_id
         meta = model.meta.copy()          # 서지 정보(서지 정보 창에서 확인/수정한 값)
         if self.button is not None:
             self.button.configure(state="disabled")
         self.status.set("PDF 생성 중...")
 
-        activity_log.log(f"PDF로 내보내기 시작: {len(ordered_items)}쪽")
+        activity_log.log(f"PDF로 내보내기 시작: {len(ordered_items)}쪽" + (f" (읽지 못한 이미지 {len(skipped)}장은 빈 쪽)" if skipped else ""))
 
         def work():
             try:
@@ -81,4 +87,11 @@ class Exporter:
         if error:
             messagebox.showerror(APP_TITLE, f"PDF 생성 실패:\n{error}")
         else:
-            messagebox.showinfo(APP_TITLE, f"PDF가 생성되었습니다:\n{out_path}")
+            skipped = getattr(self, "_skipped", [])
+            if skipped:
+                names = "\n".join(skipped[:20]) + (f"\n... 외 {len(skipped) - 20}장" if len(skipped) > 20 else "")
+                messagebox.showwarning(APP_TITLE, f"PDF가 생성되었습니다:\n{out_path}\n\n"
+                                                  f"읽지 못한 이미지 {len(skipped)}장(X 표시)은 그 자리에 빈 쪽으로 넣었습니다\n"
+                                                  f"(쪽 크기: 머리에서 찾은 크기, 없으면 바로 앞 쪽과 같게):\n{names}")
+            else:
+                messagebox.showinfo(APP_TITLE, f"PDF가 생성되었습니다:\n{out_path}")

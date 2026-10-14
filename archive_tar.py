@@ -19,7 +19,7 @@ from typing import List, Tuple
 import name_codec
 import temp_store
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES
-from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
+from book_common import unreadable_entry, BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 from natural_sort import path_key
 
 _CHUNK = 1024 * 1024
@@ -150,7 +150,7 @@ def extract_tar(path: str, on_progress: ProgressFn = noop_progress, to_ram: bool
                     raise BookError(f"'{name}'을(를) 저장하지 못했습니다: {e}")
                 item = ExtractedImage(label=name, path=out_path, damaged=n < m.size)
             if n == 0 and m.size > 0:
-                results.warnings.append(f"{name}: 손상되어 읽지 못했습니다. 목록에서 뺐습니다.")
+                got.append(unreadable_entry(name, "압축 파일 안에서 내용을 하나도 꺼내지 못했습니다"))           # 못 꺼내도 자리는 지킨다(X 표시)
                 continue
             got.append(item)
             on_progress(done, total)

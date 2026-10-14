@@ -26,7 +26,7 @@ import book_meta
 import djvu_tool
 import temp_store
 from archive_zip import MAX_TOTAL_BYTES
-from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, noop_progress
+from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, noop_progress, unreadable_entry
 
 _COLOR_CHUNKS = {b"BG44", b"BGjp", b"BG2k", b"FG44", b"FGjp", b"FG2k", b"FGbz"}
 _PNM_MAGIC = {b"P4": 1, b"P5": 1, b"P6": 3}
@@ -291,8 +291,8 @@ def extract_djvu(path: str, on_progress: ProgressFn = noop_progress, to_ram: boo
             stop = first + got           # 여기서 멈췄다. 이 쪽 출력이 덜 끝난 채 뒤쪽 오류로 끊겼을 수도 있으니 이 쪽만 따로 다시 풀어 본다
             got1, msg1 = _stream(ddjvu, src, stop, stop, on_page, infos)
             if not got1:
-                why = msg1 or msg
-                results.warnings.append(f"{stop}쪽: 풀지 못했습니다{f' ({why})' if why else ''}. 목록에서 뺐습니다.")
+                why = msg1 or msg                    # 못 푼 쪽도 자리는 지킨다(X 표시, 쪽 순서 유지)
+                images.append(unreadable_entry(f"page_{stop:0{width}d}.png", "djvu 쪽을 풀지 못했습니다" + (f" ({why})" if why else "")))
             first = stop + 1
         results.extend(images)
         return results

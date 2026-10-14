@@ -21,7 +21,8 @@ from typing import BinaryIO, Dict, List, Optional
 
 import book_meta
 import temp_store
-from book_common import (BookError, ExtractedImage, ExtractResult, ProgressFn, local_name, noop_progress)
+from book_common import (BookError, ExtractedImage, ExtractResult, ProgressFn, local_name, noop_progress,
+                         unreadable_entry)
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES
 
 _EXT_BY_TYPE = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/gif": ".gif",
@@ -171,7 +172,8 @@ def _parse(stream: BinaryIO, to_ram: bool, on_progress: ProgressFn, results: Ext
                 try:
                     data = base64.b64decode("".join(text.split()), validate=False)
                 except (binascii.Error, ValueError):
-                    results.warnings.append(f"{bid}: 이미지 데이터를 풀지 못했습니다. 목록에서 뺐습니다.")
+                    blobs[bid] = unreadable_entry(bid, "이미지 데이터(base64)를 풀지 못했습니다")   # 못 풀어도 자리는 지킨다(X 표시)
+                    binary_order.append(bid)
                     continue
                 del text
                 ext = _ext_for(data[:16], ctype)

@@ -29,6 +29,8 @@ class LoadResult:
     notes: List[str] = field(default_factory=list)      # 참고 안내(오류 아님) - 정보 창으로 알린다
     meta: object = None                                  # 파일에서 읽은 서지 정보(book_meta.BookMeta) - 문서 형식만
     cancelled: bool = False                              # [중단]으로 도중에 멈춘 작업(읽은 데까지만 들어 있음)
+    unreadable: List[str] = field(default_factory=list)  # 전혀 못 읽어 X 표시 상자로 넣은 이미지("이름: 이유")
+    repaired: List[str] = field(default_factory=list)    # 머리 부분이 깨져 복구해 읽은 이미지
 
 
 def _lines(names: List[str]) -> str:
@@ -41,6 +43,15 @@ def build_message(result: LoadResult) -> str:
     parts = []
     if result.errors:
         parts.append("일부를 불러오지 못했습니다:\n" + _lines(result.errors))
+    if result.unreadable:
+        where = f" ({result.source})" if result.source else ""
+        parts.append(f"읽지 못한 이미지 {len(result.unreadable)}개가 있습니다{where}.\n"
+                     "목록에는 X 표시 상자와 빨간 테두리로 넣었습니다. PDF에는 그 자리에 빈 쪽으로 들어가고, "
+                     "이미지 내보내기는 원본 파일을 그대로 저장합니다.\n" + _lines(result.unreadable))
+    if result.repaired:
+        where = f" ({result.source})" if result.source else ""
+        parts.append(f"머리 부분이 깨진 이미지 {len(result.repaired)}개를 복구해 넣었습니다{where}.\n"
+                     "빨간 테두리로 구분되며, 내보낼 때는 복구한 데이터를 씁니다.\n" + _lines(result.repaired))
     if result.damaged:
         where = f" ({result.source})" if result.source else ""
         parts.append(f"손상된 이미지 {len(result.damaged)}개가 있습니다{where}.\n"
@@ -52,12 +63,12 @@ def build_message(result: LoadResult) -> str:
 
 def show(result: LoadResult) -> None:
     activity_log.log(f"불러오기 결과{' (' + result.source + ')' if result.source else ''}: {len(result.items)}장, 손상 {len(result.damaged)},"
-                     f" 못 읽음 {len(result.errors)}{', 중단됨' if result.cancelled else ''}"
+                     f" 머리복구 {len(result.repaired)}, X표시 {len(result.unreadable)}, 못 넣음 {len(result.errors)}{', 중단됨' if result.cancelled else ''}"
                      + (f" - 첫 오류: {result.errors[0][:200]}" if result.errors else ""))
     text = build_message(result)
     if not text:
         return
-    if result.errors:
+    if result.errors or result.unreadable:
         messagebox.showwarning(APP_TITLE, text)
     else:
         messagebox.showinfo(APP_TITLE, text)

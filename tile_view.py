@@ -225,6 +225,8 @@ class TileView:
     def _size_label(item: pdf_core.PageItem) -> str:
         # kind='image': 실제 픽셀 크기. kind='pdf_page': 원본 페이지 크기(pt, 72pt=1inch) -
         # 이 페이지는 원본 그대로 복사되므로 "px" 표기로 오해하지 않도록 단위를 구분해서 표시.
+        if item.unreadable:
+            return f"{item.width}x{item.height}px(머리에서 찾은 크기)" if getattr(item, "size_found", False) else "크기 모름"
         if item.kind == "image":
             return f"{item.width}x{item.height}px"
         return f"{item.width}x{item.height}pt (원본 그대로)"
@@ -312,7 +314,9 @@ class TileView:
                                           text=f"{cover_mark}{item.label}",
                                           font=("", 10, "bold"), width=wrap, tags=tag)
             items["meta"] = c.create_text(tx, y + h / 2 + 12, anchor="w", justify="left",
-                                          text=f"{self._size_label(item)}   |   {kind_label}" + ("   |   손상됨(일부만 표시)" if damaged else ""),
+                                          text=f"{self._size_label(item)}   |   {kind_label}" + ("   |   읽지 못함: " + getattr(item, "unreadable_reason", "") if item.unreadable
+                                                 else "   |   손상됨(머리 부분 복구)" if getattr(item, "repaired", False)
+                                                 else "   |   손상됨(일부만 표시)" if damaged else ""),
                                           fill="#555555", width=wrap, tags=tag)
         self.tile_items[iid] = items
 

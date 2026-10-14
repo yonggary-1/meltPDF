@@ -19,7 +19,7 @@ from typing import List, Optional, Tuple
 import rarfile
 
 import temp_store
-from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
+from book_common import unreadable_entry, BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 from natural_sort import path_key
 import rar_tool
 
@@ -206,9 +206,6 @@ def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
         warnings: List[str] = []
         missing = _missing_names(infos, images)
         damaged = _damaged_names(infos, images) if tool_warning else set()   # 풀리긴 했지만 체크섬이 맞지 않는 이미지(타일에 빨간 테두리)
-        if missing:
-            warnings.append(f"압축 파일에서 풀리지 않아 목록에서 뺀 이미지 {len(missing)}개: " + ", ".join(missing[:10])
-                            + (f" 외 {len(missing) - 10}개" if len(missing) > 10 else ""))
         results = ExtractResult(warnings=warnings)
         for rel, full in images:
             if os.path.getsize(full) > MAX_ENTRY_BYTES:
@@ -220,6 +217,9 @@ def extract_rar(path: str, on_progress: ProgressFn = noop_progress,
                 dst = temp_store.new_path(PurePosixPath(rel).suffix.lower())
                 shutil.move(full, dst)
                 results.append(ExtractedImage(label=rel, path=dst, damaged=rel in damaged))
+        if missing:                                  # 풀리지 않은 이미지도 자리는 지킨다(X 표시, 이름 순 자리에)
+            results.extend(unreadable_entry(n, "압축 파일에서 풀리지 않았습니다") for n in missing)
+            results.sort(key=lambda it: path_key(it.label))
         on_progress(total, total)
         return results
     except OSError as e:

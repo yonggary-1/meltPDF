@@ -35,7 +35,10 @@ _PDF_PAGE_LONG_SIDE_PX = 2600   # 기존 PDF 페이지를 그릴 때 긴 변의 
 
 
 def load_full_image(item: pdf_core.PageItem) -> Image.Image:
-    """목록 항목의 원본 이미지를 PIL로 연다(썸네일이 아니라 실제 크기)."""
+    """목록 항목의 원본 이미지를 PIL로 연다(썸네일이 아니라 실제 크기). 전혀 못 읽은 이미지는 X 표시 상자를 크게 보여 준다."""
+    if item.unreadable:
+        ph = Image.open(io.BytesIO(item.thumb_bytes)).convert("RGB")
+        return ph.resize((ph.width * 3, ph.height * 3), Image.LANCZOS)
     if item.kind == "pdf_page":
         doc = fitz.open(item.origin_pdf)
         try:
@@ -210,6 +213,9 @@ class ImageViewer:
         if self.win is None or self.img is None:
             return
         item = self.model.items.get(self.item_id) if self.item_id else None
+        if item is not None and item.unreadable:
+            messagebox.showinfo(APP_TITLE, "읽지 못한 이미지라 복사할 수 없습니다.", parent=self.win)
+            return
         self.win.configure(cursor="watch")
         self.win.update_idletasks()
         try:

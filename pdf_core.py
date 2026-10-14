@@ -27,6 +27,7 @@ import img2pdf
 import pikepdf
 import fitz  # PyMuPDF
 
+import decode_guard
 import pdf_meta
 
 THUMB_MAX = 160          # 리스트에 보여줄 썸네일 최대 변 길이(px)
@@ -56,7 +57,8 @@ class PageItem:
     raster_bytes: Optional[bytes] = None  # kind='image'이고 재인코딩이 필요할 때만 사용(PNG bytes)
     origin_pdf: Optional[str] = None      # kind='pdf_page'일 때 원본 pdf 경로 (내보내기 시 실제로 사용)
     origin_page_no: Optional[int] = None  # kind='pdf_page'일 때 1-based 페이지 번호 (내보내기 시 실제로 사용)
-    damaged: bool = False                 # 압축 파일 안에서 깨져 있던 이미지(읽을 수 있는 부분만 표시) - 화면에서 빨간 테두리로 구분
+    damaged: bool = False                 # 깨진 이미지(읽을 수 있는 부분만 표시, 또는 전혀 못 읽음) - 화면에서 빨간 테두리로 구분
+    unreadable: bool = False              # 전혀 못 읽은 이미지 파일(썸네일은 X 표시 상자). 원본 바이트는 그대로 들고 있고 PDF에는 그 자리에 빈 쪽이 들어간다
     page_images: Optional[dict] = None    # kind='pdf_page'일 때 그 쪽에 쓰인 이미지들 {xref: 저장 크기(바이트)} - 용량 표시용(size_info.py)
 
 
@@ -103,7 +105,7 @@ def load_image_item(path: Union[str, Path]) -> PageItem:
     회전 정보가 있는 경우에만 픽셀을 회전시켜 PNG로 다시 인코딩한다(화질 손실 없음, 파일만 커짐).
     """
     path = str(path)
-    with Image.open(path) as im:
+    with decode_guard.shared(), Image.open(path) as im:      # 깨진 이미지 풀기와 겹치지 않게(decode_guard.py)
         item = _build_image_item(im, Path(path).name, source_path=path, original_bytes=None)
     if item.source_path:
         # 상태 표시줄 용량 계산(size_info)이 화면 스레드에서 파일 크기를 묻지 않게, 읽는 김에 여기서(일꾼 스레드) 재 둔다.
@@ -118,7 +120,7 @@ def load_image_item(path: Union[str, Path]) -> PageItem:
 def load_image_item_from_bytes(data: bytes, label: str) -> PageItem:
     """메모리에 있는 이미지 원본 바이트로 PageItem을 만든다(압축/책 파일에서 꺼낸 이미지를 디스크에
     쓰지 않고 RAM에 둘 때). 회전 정보가 없으면 원본 바이트를 그대로 내보내기에 쓴다(무손실)."""
-    with Image.open(io.BytesIO(data)) as im:
+    with decode_guard.shared(), Image.open(io.BytesIO(data)) as im:
         return _build_image_item(im, label, source_path=None, original_bytes=data)
 
 
@@ -260,6 +262,23 @@ def _source_size(source: Union[str, bytes]) -> int:
         return 0
 
 
+def _fit_blank_pages(output, blank_fit: List[int]) -> None:
+    """못 읽은 이미지 자리의 빈 쪽 크기를 바로 앞 쪽과 같게(맨 앞이면 바로 뒤의 보통 쪽과 같게) 맞춘다. 회전(/Rotate)도 따른다.
+    앞 쪽이 또 다른 빈 쪽이면 이미 맞춘 그 크기를 따른다(앞에서부터 차례로 맞춤)."""
+    fit = set(blank_fit)
+    n = len(output.pages)
+    for idx in sorted(fit):
+        src = idx - 1 if idx > 0 else next((j for j in range(idx + 1, n) if j not in fit), None)
+        if src is None:
+            continue                                    # 모든 쪽이 빈 쪽 - 기본 크기(A4) 그대로
+        sp = pikepdf.Page(output.pages[src])
+        dp = pikepdf.Page(output.pages[idx])
+        dp.obj.MediaBox = pikepdf.Array([float(v) for v in sp.mediabox])
+        rot = sp.obj.get("/Rotate")
+        if rot is not None:
+            dp.obj.Rotate = int(rot)
+
+
 def export_pdf(
     items: List[PageItem],
     output_path: Union[str, Path],
@@ -308,6 +327,7 @@ def export_pdf(
         output.pages.extend(tmp_pdf.pages)
         pending.clear()
 
+    blank_fit: List[int] = []              # 크기를 앞(또는 뒤) 쪽에 맞출 빈 쪽 번호(0부터)
     try:
         pending: List[Union[str, bytes]] = []
         pending_bytes = 0
@@ -321,6 +341,16 @@ def export_pdf(
                     src_cache[item.origin_pdf] = src_pdf
                     open_handles.append(src_pdf)
                 output.pages.append(src_pdf.pages[item.origin_page_no - 1])
+            elif item.unreadable:
+                # 전혀 못 읽은 이미지: 그 자리에 빈 쪽(v0.19.6). 머리에서 크기를 찾았으면 그 크기(96dpi 기준 - 보통 이미지와 같은 규칙),
+                # 아니면 바로 앞 쪽과 같은 크기(맨 앞이면 바로 뒤 쪽) - 크기는 모든 쪽을 넣은 뒤 맞춘다.
+                flush(pending)
+                pending_bytes = 0
+                if getattr(item, "size_found", False) and item.width and item.height:
+                    output.add_blank_page(page_size=(item.width * 72 / 96, item.height * 72 / 96))
+                else:
+                    blank_fit.append(len(output.pages))
+                    output.add_blank_page(page_size=(595, 842))
             else:
                 source = _export_source(item)
                 size = _source_size(source)
@@ -330,6 +360,7 @@ def export_pdf(
                 pending.append(source)
                 pending_bytes += size
         flush(pending)
+        _fit_blank_pages(output, blank_fit)
 
         pdf_meta.apply_meta(output, meta)
         output.save(output_path)

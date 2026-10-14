@@ -193,12 +193,16 @@ class FileLoader:
         try:
             for (_p, label), got, err in parallel_load.ordered(_read_one, jobs, should_stop=self.jobs.cancelled):
                 n += 1
-                if err is not None:
+                if err is not None:                      # (예상 밖의 오류 - 보통은 못 읽는 파일도 X 표시 항목으로 들어온다)
                     result.errors.append(f"{label}: {damaged_image.unreadable_reason(err)}")
                 else:
-                    item, damaged = got
+                    item, _damaged = got
                     result.items.append(item)
-                    if damaged:
+                    if item.unreadable:
+                        result.unreadable.append(f"{label}: {getattr(item, 'unreadable_reason', '')}")
+                    elif getattr(item, "repaired", False):
+                        result.repaired.append(label)
+                    elif item.damaged:
                         result.damaged.append(label)
                     feed.progress_text = f"이미지 불러오는 중... {n}/{total}"
                     feed.push(item)
@@ -246,7 +250,7 @@ class FileLoader:
 
 def _read_one(job):
     """(동시 처리 스레드) 이미지 한 장 읽기 -> (항목, 손상 여부). 정상으로 못 읽으면(잘렸거나 일부가 깨짐)
-    읽을 수 있는 부분만이라도 불러온다. 그것도 안 되면 원래 오류를 낸다."""
+    읽을 수 있는 부분만이라도 불러온다. 그것도 안 되면 X 표시 상자 항목으로 넣는다(v0.19.6 - 못 읽는 파일도 무조건 넣음)."""
     path, label = job
     try:
         item = pdf_core.load_image_item(path)
@@ -256,7 +260,7 @@ def _read_one(job):
         try:
             bad = damaged_image.load_damaged_item(label, path=path)
         except Exception:
-            raise e
+            return damaged_image.recover(label, path=path, exc=e), True     # 머리 부분 복구 시도 -> 안 되면 X 표시
         bad.damaged = True
         return bad, True
 

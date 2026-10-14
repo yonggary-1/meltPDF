@@ -26,7 +26,7 @@ import book_meta
 import name_codec
 import temp_store
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES, copy_limited
-from book_common import (BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, local_name,
+from book_common import (BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, local_name, unreadable_entry,
                          noop_progress, parse_xml)
 
 MAX_DOC_BYTES = 50 * 1024 * 1024            # 쪽(xhtml) 하나는 이보다 크면 읽지 않는다
@@ -299,7 +299,7 @@ def extract_epub(path: str, on_progress: ProgressFn = noop_progress, to_ram: boo
                 except (zipfile.BadZipFile, zlib_error, EOFError, NotImplementedError):
                     src = None
                 if src is None:
-                    results.warnings.append(f"{name}: 손상되어 읽지 못했습니다. 목록에서 뺐습니다.")
+                    results.append(unreadable_entry(name, "압축 파일 안의 이 항목을 열지 못했습니다"))       # 못 꺼내도 자리는 지킨다(X 표시)
                 else:
                     with src:
                         if to_ram:
@@ -317,7 +317,8 @@ def extract_epub(path: str, on_progress: ProgressFn = noop_progress, to_ram: boo
                             if keep:
                                 results.append(ExtractedImage(label=name, path=out_path, damaged=not ok))
                     if not keep:
-                        results.warnings.append(f"{name}: 손상되어 읽지 못했습니다. 목록에서 뺐습니다.")
+                        results.append(unreadable_entry(name, "빈 파일(0바이트)입니다" if info.file_size == 0
+                                                        else "압축 파일 안에서 내용을 하나도 꺼내지 못했습니다"))
             except OSError as e:
                 raise BookError(f"'{name}'을(를) 읽지 못했습니다: {e}")
             on_progress(done, total)

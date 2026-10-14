@@ -17,7 +17,7 @@ from typing import Dict, List
 
 import temp_store
 from archive_zip import MAX_ENTRY_BYTES, MAX_TOTAL_BYTES
-from book_common import BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
+from book_common import unreadable_entry, BookError, ExtractedImage, ExtractResult, ProgressFn, is_image_name, noop_progress
 from natural_sort import path_key
 
 MAGIC = b"7z\xbc\xaf\x27\x1c"
@@ -165,7 +165,7 @@ def extract_7z(path: str, on_progress: ProgressFn = noop_progress, to_ram: bool 
         received = {it.label for it in got}
         missing = [i.filename for i in cands if i.filename.lstrip("/") not in received]
         for name in missing:
-            results.warnings.append(f"{name}: 손상되어 읽지 못했습니다. 목록에서 뺐습니다.")
+            got.append(unreadable_entry(name.lstrip("/"), "압축 파일 안에서 내용을 하나도 꺼내지 못했습니다"))  # 못 꺼내도 자리는 지킨다(X 표시)
         if error is not None and not missing and not any(it.damaged for it in got):
             results.warnings.append(f"7z를 푸는 중 오류가 있었습니다: {error}")
         got.sort(key=lambda it: path_key(it.label))

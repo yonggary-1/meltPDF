@@ -13,6 +13,7 @@ import ui_mailbox
 from book_loader import BookLoader
 from config import WINDOW_TITLE
 from doc_model import DocModel
+from damaged_nav import DamagedNav
 from drag_reorder import DragReorder
 from empty_hint import EmptyHint
 from export import Exporter
@@ -149,6 +150,9 @@ class App:
             side=tk.LEFT, padx=(4, 0))
         # 불러오는 중(목록에 이미 썸네일이 보일 때) [중단] - [전체 삭제] 옆
         self.load_stop = LoadStopButton(danger, self.model, self.jobs)
+        # [깨진 이미지 N장] - 빨간 테두리 이미지를 차례로 찾아가는 버튼(삭제 버튼들과 내보내기 버튼 사이)
+        self.damaged_nav = DamagedNav(bar, self.view, self.model, self.status, self.keynav)
+        self.damaged_nav.button.pack(side=tk.LEFT, padx=(16, 0), fill=tk.Y)   # 높이를 옆 버튼들과 맞춘다
         # 메모리 미터는 윗줄(상태 문구 줄)의 오른쪽 끝에 둔다 - 아랫줄에 내보내기 버튼이 셋이라 좁은 창에서 잘리지 않게.
         self.ram_meter = RamMeter(self.status.top_row)
         self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0), before=self.status.label)
