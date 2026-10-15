@@ -186,48 +186,48 @@ def list_images_in_folder(folder: Union[str, Path], recursive: bool = False, sho
 
 
 def load_pdf_items(pdf_path: Union[str, Path]) -> List[PageItem]:
-    """기존 PDF를 열어 각 페이지를 목록에 추가할 PageItem으로 변환.
+    """기존 PDF를 열어 각 페이지를 목록에 추가할 PageItem(kind='pdf_page')으로 변환.
+    (화면의 PDF 불러오기는 v0.20.1부터 pdf_loader.py가 한다 - 이미지 한 장뿐인 쪽은 이미지로 꺼냄. 이 함수는 모든 쪽을 쪽으로.)"""
+    pdf_path = str(pdf_path)
+    doc = fitz.open(pdf_path)
+    try:
+        return [pdf_page_item(doc, page, pdf_path, i) for i, page in enumerate(doc)]
+    finally:
+        doc.close()
+
+
+def pdf_page_item(doc, page, pdf_path: str, index: int) -> PageItem:
+    """PDF의 한 쪽 -> 목록 항목(kind='pdf_page').
 
     화면에 보여줄 작은 미리보기(thumb_bytes)만 렌더링하고, 원본 페이지 내용은 전혀 건드리지
     않는다 - 실제 내보내기(export_pdf)는 origin_pdf/origin_page_no로 원본 페이지 객체를 그대로
     복사해 넣는다(순서 변경/삭제만 반영, 텍스트/벡터/이미지 해상도 등 원본과 100% 동일).
     """
-    pdf_path = str(pdf_path)
-    items: List[PageItem] = []
-    doc = fitz.open(pdf_path)
+    rect = page.rect
+    longest = max(rect.width, rect.height, 1)
+    scale = PREVIEW_RENDER_MAX_PX / longest
+    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+    with Image.open(io.BytesIO(pix.tobytes("png"))) as im:
+        thumb_bytes = _make_thumb_bytes(im)
+    page_images = {}
     try:
-        for i, page in enumerate(doc):
-            rect = page.rect
-            longest = max(rect.width, rect.height, 1)
-            scale = PREVIEW_RENDER_MAX_PX / longest
-            mat = fitz.Matrix(scale, scale)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            with Image.open(io.BytesIO(pix.tobytes("png"))) as im:
-                thumb_bytes = _make_thumb_bytes(im)
-            page_images = {}
-            try:
-                for info in page.get_images(full=True):
-                    xref = info[0]
-                    if xref and xref not in page_images:
-                        page_images[xref] = _stream_length(doc, xref)
-            except Exception:
-                pass                                    # 용량 표시용일 뿐이라 못 읽어도 불러오기는 계속한다
-            items.append(
-                PageItem(
-                    id=str(uuid.uuid4()),
-                    label=f"{Path(pdf_path).name} - p{i + 1}",
-                    kind="pdf_page",
-                    width=round(rect.width),
-                    height=round(rect.height),
-                    thumb_bytes=thumb_bytes,
-                    origin_pdf=pdf_path,
-                    origin_page_no=i + 1,
-                    page_images=page_images,
-                )
-            )
-    finally:
-        doc.close()
-    return items
+        for info in page.get_images(full=True):
+            xref = info[0]
+            if xref and xref not in page_images:
+                page_images[xref] = _stream_length(doc, xref)
+    except Exception:
+        pass                                    # 용량 표시용일 뿐이라 못 읽어도 불러오기는 계속한다
+    return PageItem(
+        id=str(uuid.uuid4()),
+        label=f"{Path(pdf_path).name} - p{index + 1}",
+        kind="pdf_page",
+        width=round(rect.width),
+        height=round(rect.height),
+        thumb_bytes=thumb_bytes,
+        origin_pdf=pdf_path,
+        origin_page_no=index + 1,
+        page_images=page_images,
+    )
 
 
 def _stream_length(doc, xref: int) -> int:

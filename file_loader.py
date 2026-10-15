@@ -18,12 +18,12 @@ import incremental_add
 import load_report
 import parallel_load
 import pdf_core
-import pdf_meta
 import ui_mailbox
 from config import APP_TITLE, DND_FILES, HAS_DND
 from doc_model import DocModel
 from load_queue import LoadCancelled, LoadQueue
 from load_report import LoadResult
+from pdf_loader import PdfLoader
 from status_bar import StatusBar
 
 
@@ -39,6 +39,7 @@ class FileLoader:
         self.extra_drop_handlers: list = []
         # 끌어다 놓은 자리 -> 그 자리 뒤쪽 항목 id(그 앞에 넣음). 목록 중간 놓기 기능(file_drop_mark.py)이 채운다.
         self.drop_anchor = None
+        self.pdf = PdfLoader(root, model, status, jobs, settings)
 
     # ---------------------------------------------------------- 대화상자
     def open_files_dialog(self):
@@ -226,26 +227,8 @@ class FileLoader:
         load_report.show(result)
 
     def _load_pdf_async(self, path, before=None):
-        self.status.set(f"PDF 여는 중: {Path(path).name}")
-
-        def work():
-            items = pdf_core.load_pdf_items(path)
-            return items, (pdf_meta.read_pdf_meta(path, Path(path).name) if items else None)
-
-        def done(result, error):
-            if isinstance(error, LoadCancelled):           # [중단]으로 시작도 하지 않은 작업
-                self.status.refresh()
-                return
-            if error:
-                messagebox.showerror(APP_TITLE, f"PDF를 여는 데 실패했습니다:\n{error}")
-                self.status.refresh()
-            else:
-                items, meta = result
-                self.model.offer_meta(meta)        # PDF의 서지 정보(문서 정보/XMP)
-                self.model.add(items, before=before)
-                self.status.refresh()                  # 쪽이 하나도 없어 목록 알림이 없을 때도 "PDF 여는 중"을 지운다
-
-        self.jobs.submit(work, done, label=f"PDF {Path(path).name}")
+        """PDF: 이미지 한 장뿐인 쪽은 이미지로 꺼내고, 나머지는 쪽 그대로(v0.20.1 - pdf_loader.py)."""
+        self.pdf.load(path, before)
 
 
 def _read_one(job):

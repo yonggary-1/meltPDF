@@ -62,6 +62,10 @@ def _head(item: pdf_core.PageItem) -> bytes:
 def _filename_for(item: pdf_core.PageItem) -> str:
     """목록 이름에서 폴더 부분을 떼고 윈도우용으로 정리한 파일 이름. 확장자는 실제 내용에 맞춘다."""
     base = PurePosixPath(item.label.replace("\\", "/")).name or "image"
+    m = _PDF_IMAGE_LABEL.match(base.strip())
+    if m:                                            # PDF 쪽에서 이미지로 꺼낸 항목(v0.20.1): PDF 쪽과 같은 "<PDF 이름> - p003.jpg"
+        width = max(3, len(str(getattr(item, "pdf_page_count", 0))))
+        base = f"{m.group(1)} - p{int(m.group(2)):0{width}d}{m.group(3)}"
     name = name_codec.safe_name(base, fallback="image")
     stem, ext = os.path.splitext(name)
     fmt = sniff_format(_head(item))
@@ -95,6 +99,7 @@ class ExportPlan:
 
 
 _DEFAULT_PDF_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)$", re.IGNORECASE)
+_PDF_IMAGE_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)(\.[A-Za-z0-9]+)$", re.IGNORECASE)
 
 
 def _pdf_page_base(item: pdf_core.PageItem, page_count: int) -> str:

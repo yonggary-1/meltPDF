@@ -11,11 +11,11 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox
 from typing import List, Tuple
 
 import activity_log
 import book_import
+import disk_ask
 import pdf_core
 import storage_policy
 import damaged_image
@@ -25,7 +25,6 @@ import load_report
 import ui_mailbox
 from load_report import LoadResult
 from book_common import BookError
-from config import APP_TITLE
 from doc_model import DocModel
 from load_queue import LoadCancelled, LoadQueue
 from settings import Settings
@@ -71,13 +70,7 @@ class BookLoader:
                          label=name)
 
     def _ask_use_disk(self, estimate: int, limit: int) -> bool:
-        return messagebox.askyesno(
-            APP_TITLE,
-            f"이 파일의 이미지는 압축을 풀면 약 {_fmt_size(estimate)}입니다.\n"
-            f"메모리 한도(약 {_fmt_size(limit)})를 넘어서, 전부 메모리에 올리면 컴퓨터가 느려지거나 "
-            f"멈출 수 있습니다.\n\n"
-            f"디스크의 임시 폴더를 사용해서 불러올까요?\n"
-            f"('아니요'를 누르면 이 파일은 불러오지 않습니다. 설정에서 기본 동작을 바꿀 수 있습니다.)")
+        return disk_ask.ask(estimate, limit)
 
     # ---------------------------------------------------------- 백그라운드 처리 (일꾼 스레드)
     def _extract(self, path: str, name: str, to_ram: bool, before=None) -> LoadResult:
@@ -179,8 +172,3 @@ class BookLoader:
             self.status.set(f"불러오기를 중단했습니다. ({len(result.items)}장 불러옴)")
         load_report.show(result)
 
-
-def _fmt_size(n: int) -> str:
-    if n >= 1024 ** 3:
-        return f"{n / 1024 ** 3:.1f}GB"
-    return f"{n / 1024 ** 2:.0f}MB"
