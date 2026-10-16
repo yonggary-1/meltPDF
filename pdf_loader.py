@@ -1,5 +1,5 @@
 """
-PDF 불러오기 - 쪽마다 "이미지 한 장을 그대로 놓은 쪽"이면 그 이미지를 꺼내 이미지 항목으로, 아니면 쪽 그대로 넣는다
+PDF 불러오기 - 쪽마다 "이미지 한 장을 놓은 쪽"이면 그 이미지를 꺼내 이미지 항목으로, 아니면 쪽 그대로 넣는다
 (v0.20.1, 사용자 요청. 판정은 pdf_page_image.py). 이전에는 모든 쪽을 쪽 그대로 넣었다.
 
 - 꺼낸 이미지는 책/압축 파일과 같은 규칙으로 메모리 또는 디스크 임시 폴더에 둔다(storage_policy - 한도를 넘으면 묻는다).
@@ -76,7 +76,8 @@ class PdfLoader:
 
             def pages():                          # (이 일꾼 스레드에서) 쪽마다 판정하고, 이미지 한 장뿐이면 그 바이트를 꺼낸다
                 for i in range(total):
-                    yield i, (pdf_page_image.extract(doc, doc[i]) if extract_ok else None)
+                    yield i, (pdf_page_image.classify(doc, doc[i]) if extract_ok
+                              else pdf_page_image.Result(reason="locked"))
 
             n = 0
             try:
@@ -87,6 +88,9 @@ class PdfLoader:
                     n += 1
                     if item is None:
                         item = pdf_core.pdf_page_item(doc, doc[i], path, i)
+                        # 쪽 그대로 넣은 이유(v0.21.0) - 파란 테두리와 [?] 창에서 보여 준다(page_reasons.py)
+                        item.pdf_reason = got.reason if got.data is None else "read_fail"
+                        item.pdf_reason_detail = got.detail if got.data is None else "꺼낸 이미지를 이미지로 읽지 못했습니다."
                     else:
                         as_image += 1
                     items.append(item)
@@ -108,19 +112,20 @@ class PdfLoader:
 
     @staticmethod
     def _image_item(got, name: str, index: int, page_count: int, to_ram: bool):
-        """(동시 처리 스레드) 꺼낸 이미지(바이트, 확장자)로 만든 항목. 꺼낸 것이 없거나 이미지로 읽지 못하면 None(쪽 그대로)."""
-        if got is None:
+        """(동시 처리 스레드) 판정 결과(pdf_page_image.Result)로 만든 이미지 항목. 꺼낸 것이 없거나 이미지로 읽지 못하면 None(쪽 그대로).
+        항목은 PDF에서처럼 보이게: 원본 바이트 그대로 + 돌려 놓인 방향(rotate), 원본의 EXIF 회전은 따르지 않음(pdf_core.load_fixed_image_item)."""
+        if got.data is None:
             return None
-        data, ext = got
+        data, ext = got.data, got.ext
         label = f"{name} - p{index + 1}{ext}"
         try:
             if to_ram:
-                item = pdf_core.load_image_item_from_bytes(data, label)
+                item = pdf_core.load_fixed_image_item(label, got.rotate, data=data)
             else:
                 tmp = temp_store.new_path(ext)
                 with open(tmp, "wb") as f:
                     f.write(data)
-                item = pdf_core.load_image_item(tmp)
+                item = pdf_core.load_fixed_image_item(label, got.rotate, path=tmp)
             item.label = label
             item.pdf_page_count = page_count         # 이미지 내보내기 이름의 쪽 번호 자릿수(PDF 쪽과 같게)
             return item

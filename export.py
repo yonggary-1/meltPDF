@@ -19,11 +19,23 @@ from status_bar import StatusBar
 
 
 class Exporter:
-    def __init__(self, root: tk.Misc, model: DocModel, status: StatusBar):
+    def __init__(self, root: tk.Misc, model: DocModel, status: StatusBar, settings=None):
         self.root = root
         self.model = model
         self.status = status
+        self.settings = settings
         self.button = None
+        # PDF로 내보낼 때 쪽 그대로인 PDF 쪽의 흰 여백 없애기(v0.21.0 - margin_trim.py). 설정에 기억한다.
+        self.trim_var = tk.BooleanVar(master=root, value=bool(settings.get("trim_pdf_margins")) if settings else False)
+        self._trimmed = 0
+
+    def make_trim_check(self, parent: tk.Misc) -> ttk.Checkbutton:
+        """툴바의 [PDF 쪽 여백 없애기] 체크 상자."""
+        def changed():
+            if self.settings is not None:
+                self.settings.set("trim_pdf_margins", bool(self.trim_var.get()))
+            activity_log.log(f"PDF 쪽 여백 없애기: {'켬' if self.trim_var.get() else '끔'}")
+        return ttk.Checkbutton(parent, text="PDF 쪽 여백 없애기", variable=self.trim_var, command=changed)
 
     BIG_TEXT = "PDF 내보내기"          # 한글 화면 글자(영문 화면을 만들면 "PDF Print" - 사용자 지정)
     BIG_STYLE = "BigExport.TButton"
@@ -68,9 +80,13 @@ class Exporter:
 
         activity_log.log(f"PDF로 내보내기 시작: {len(ordered_items)}쪽" + (f" (읽지 못한 이미지 {len(skipped)}장은 빈 쪽)" if skipped else ""))
 
+        trim = bool(self.trim_var.get())
+        self._trimmed = 0
+
         def work():
             try:
-                pdf_core.export_pdf(ordered_items, out_path, cover_id=cover_id, meta=meta)
+                self._trimmed = pdf_core.export_pdf(ordered_items, out_path, cover_id=cover_id, meta=meta,
+                                                    trim_margins=trim) or 0
                 ui_mailbox.post(lambda: self._on_export_done(out_path, None))
             except Exception as e:
                 ui_mailbox.post(lambda e=e: self._on_export_done(out_path, e))   # e는 except 블록이 끝나면 지워지므로 기본값으로 붙잡는다
@@ -81,7 +97,7 @@ class Exporter:
         if error:
             bug_report.note_handled("PDF로 내보내기 실패", error)
         else:
-            activity_log.log("PDF로 내보내기 끝")
+            activity_log.log("PDF로 내보내기 끝" + (f" (여백 없앤 PDF 쪽 {self._trimmed}개)" if self._trimmed else ""))
         if self.button is not None:
             self.button.configure(state="normal")
         self.status.refresh()
@@ -95,4 +111,5 @@ class Exporter:
                                                   f"읽지 못한 이미지 {len(skipped)}장(X 표시)은 그 자리에 빈 쪽으로 넣었습니다\n"
                                                   f"(쪽 크기: 머리에서 찾은 크기, 없으면 바로 앞 쪽과 같게):\n{names}")
             else:
-                messagebox.showinfo(APP_TITLE, f"PDF가 생성되었습니다:\n{out_path}")
+                messagebox.showinfo(APP_TITLE, f"PDF가 생성되었습니다:\n{out_path}"
+                                    + (f"\n\nPDF 쪽 {self._trimmed}개의 여백을 없앴습니다." if self._trimmed else ""))

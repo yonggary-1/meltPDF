@@ -21,11 +21,12 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Callable, Dict, List, Optional
 
+import page_reasons
 import pdf_core
 import tile_layout
 from config import (
-    BG_COVER, BG_DRAGGING, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_Y, LIST_PITCH_Y,
-    LIST_TILE_H, THUMB_MAX, TILE_H, TILE_W,
+    BADGE_R, BG_COVER, BG_DRAGGING, BG_NORMAL, DAMAGED_OUTLINE, DAMAGED_OUTLINE_W, BG_SELECTED, GRID_PITCH_Y, LIST_PITCH_Y,
+    LIST_TILE_H, PDF_PAGE_OUTLINE, THUMB_MAX, TILE_H, TILE_W,
 )
 from doc_model import DocModel
 
@@ -144,6 +145,19 @@ class TileView:
         if not (x <= cx <= x + w and y <= cy <= y + h):
             return None   # 칸 사이 여백을 누른 경우
         return order[idx]
+
+    def badge_center(self, idx: int) -> tuple:
+        """idx번째 타일 안쪽 오른쪽 위의 [?] 동그라미 가운데(쪽 그대로 넣은 PDF 쪽에만 그린다 - v0.21.0)."""
+        x, y, w, _h = self.tile_rect(idx)
+        return (x + w - BADGE_R - 5, y + BADGE_R + 5)
+
+    def badge_at(self, cx: float, cy: float) -> Optional[str]:
+        """캔버스 좌표가 어떤 타일의 [?] 위면 그 타일 id(누르기 쉽게 동그라미보다 조금 넓게 본다)."""
+        iid = self.tile_at(cx, cy)
+        if iid is None or self.model.items[iid].kind != "pdf_page":
+            return None
+        bx, by = self.badge_center(self.model.order.index(iid) if iid not in self.tile_items else self.tile_items[iid]["idx"])
+        return iid if (cx - bx) ** 2 + (cy - by) ** 2 <= (BADGE_R + 3) ** 2 else None
 
     # ---------------------------------------------------------- 스크롤 / 창 크기
     def _on_yscroll(self, first, last):
@@ -293,11 +307,18 @@ class TileView:
         tag = ("tile", f"tile:{iid}")
         c = self.canvas
         damaged = getattr(item, "damaged", False)        # 손상된 이미지: 빨간 굵은 테두리
+        as_page = item.kind == "pdf_page"                # PDF에서 쪽 그대로 넣은 것: 파란 굵은 테두리 + [?](v0.21.0)
+        outline = DAMAGED_OUTLINE if damaged else PDF_PAGE_OUTLINE if as_page else "#9a9a9a"
         items = {"idx": idx,
-                 "rect": c.create_rectangle(x, y, x + w, y + h, fill=bg,
-                                            outline=DAMAGED_OUTLINE if damaged else "#9a9a9a",
-                                            width=DAMAGED_OUTLINE_W if damaged else 1, tags=tag)}
+                 "rect": c.create_rectangle(x, y, x + w, y + h, fill=bg, outline=outline,
+                                            width=DAMAGED_OUTLINE_W if (damaged or as_page) else 1, tags=tag)}
         items["img"] = c.create_image(*self.img_pos(idx), image=photo, tags=tag) if photo is not None else None
+        if as_page:
+            bx, by = self.badge_center(idx)
+            items["badge"] = c.create_oval(bx - BADGE_R, by - BADGE_R, bx + BADGE_R, by + BADGE_R, fill="white",
+                                           outline=PDF_PAGE_OUTLINE, width=2, tags=tag)
+            items["badge_q"] = c.create_text(bx, by, text="✓" if getattr(item, "pdf_kept", False) else "?",
+                                             fill=PDF_PAGE_OUTLINE, font=("", 9, "bold"), tags=tag)
         if self.view_mode_var.get() == "grid":
             items["text"] = c.create_text(
                 x + w / 2, y + THUMB_MAX + 14, anchor="n", justify="center",
@@ -306,7 +327,8 @@ class TileView:
             )
         else:
             kind_label = ("이미지" if item.kind == "image"
-                          else f"PDF({Path(item.origin_pdf).name} p{item.origin_page_no})")
+                          else f"PDF({Path(item.origin_pdf).name} p{item.origin_page_no})"
+                          + (f" - 쪽 그대로: {page_reasons.title(item.pdf_reason)}" if hasattr(item, "pdf_reason") else ""))
             tx = x + THUMB_MAX + 24
             # 캔버스 글자는 width를 주면 그 폭에서 알아서 줄바꿈된다 - 창을 좁혀도 긴 파일명이 안 잘린다.
             wrap = max(60, w - (THUMB_MAX + 34))

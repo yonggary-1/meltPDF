@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Callable, List, Optional, Tuple
 
+import jpeg_orientation
 import name_codec
 import pdf_core
 import pdf_images
@@ -99,7 +100,7 @@ class ExportPlan:
 
 
 _DEFAULT_PDF_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)$", re.IGNORECASE)
-_PDF_IMAGE_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)(\.[A-Za-z0-9]+)$", re.IGNORECASE)
+_PDF_IMAGE_LABEL = re.compile(r"^(.*)\.pdf - p(\d+)((?:_\d+)?\.[A-Za-z0-9]+)$", re.IGNORECASE)
 
 
 def _pdf_page_base(item: pdf_core.PageItem, page_count: int) -> str:
@@ -234,7 +235,15 @@ def write_plan(plan: ExportPlan, on_progress: Callable[[int, int], None] = lambd
                     filename = _write_new(plan.dest_dir, filename, taken, data=data)
                 else:
                     item = entry.item
-                    if item.raster_bytes is not None:
+                    if item.rotate is not None:
+                        # PDF에서 꺼낸 이미지: 그림 데이터는 그대로, PDF에서 돌려 놓여 있던 방향만 EXIF 회전 정보로(v0.21.0)
+                        data = item.raster_bytes
+                        if data is None:
+                            with open(item.source_path, "rb") as f:
+                                data = f.read()
+                        filename = _write_new(plan.dest_dir, filename, taken,
+                                              data=jpeg_orientation.with_orientation(data, item.rotate))
+                    elif item.raster_bytes is not None:
                         filename = _write_new(plan.dest_dir, filename, taken, data=item.raster_bytes)
                     else:
                         filename = _write_new(plan.dest_dir, filename, taken, src=item.source_path)

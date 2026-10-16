@@ -28,6 +28,7 @@ import pikepdf
 import fitz  # PyMuPDF
 
 import decode_guard
+import margin_trim
 import pdf_meta
 
 THUMB_MAX = 160          # 리스트에 보여줄 썸네일 최대 변 길이(px)
@@ -60,6 +61,13 @@ class PageItem:
     damaged: bool = False                 # 깨진 이미지(읽을 수 있는 부분만 표시, 또는 전혀 못 읽음) - 화면에서 빨간 테두리로 구분
     unreadable: bool = False              # 전혀 못 읽은 이미지 파일(썸네일은 X 표시 상자). 원본 바이트는 그대로 들고 있고 PDF에는 그 자리에 빈 쪽이 들어간다
     page_images: Optional[dict] = None    # kind='pdf_page'일 때 그 쪽에 쓰인 이미지들 {xref: 저장 크기(바이트)} - 용량 표시용(size_info.py)
+    # PDF 쪽에서 꺼낸 이미지(v0.21.0): 원본 바이트의 픽셀을 시계 방향으로 이만큼(0/90/180/270) 돌려 보여 준다. 바이트는 그대로 두고
+    # PDF로 내보낼 때는 쪽 회전(/Rotate), 이미지로 내보낼 때는 EXIF 회전 정보로 나타낸다. 원본에 든 EXIF 회전은 따르지 않는다
+    # (PDF가 따르지 않으므로). None이면 보통 이미지 파일(EXIF 회전은 불러올 때 PNG로 반영).
+    rotate: Optional[int] = None
+    # PDF에서 보이던 비율로 꺼낸 이미지(v0.21.0, [?] 창에서 고름): 화면 방향의 (폭, 높이) 비율. PDF로 내보낼 때 쪽을 이 비율로
+    # 만들고 이미지를 그 칸에 맞춰 늘린다(바이트는 그대로). 이미지로 내보내면 원본 비율 그대로다. None이면 원본 비율.
+    shape: Optional[tuple] = None
 
 
 def _make_thumb_bytes(im: Image.Image, in_place: bool = False) -> bytes:
@@ -122,6 +130,66 @@ def load_image_item_from_bytes(data: bytes, label: str) -> PageItem:
     쓰지 않고 RAM에 둘 때). 회전 정보가 없으면 원본 바이트를 그대로 내보내기에 쓴다(무손실)."""
     with decode_guard.shared(), Image.open(io.BytesIO(data)) as im:
         return _build_image_item(im, label, source_path=None, original_bytes=data)
+
+
+def load_fixed_image_item(label: str, rotate: int, data: Optional[bytes] = None,
+                          path: Optional[str] = None, shape: Optional[tuple] = None) -> PageItem:
+    """PDF 쪽에서 꺼낸 이미지 항목(rotate, shape - PageItem 참고). 원본 바이트(data) 또는 그 사본 파일(path)을 그대로 쓴다."""
+    rotate = rotate % 360
+    with decode_guard.shared(), Image.open(io.BytesIO(data) if data is not None else path) as im:
+        width, height = im.size
+        thumb_bytes = _make_thumb_bytes(im, in_place=True)
+    if rotate:
+        thumb_bytes = _rotate_png(thumb_bytes, rotate)
+        if rotate in (90, 270):
+            width, height = height, width
+    if shape:
+        height = max(1, round(width * shape[1] / shape[0]))
+        thumb_bytes = _reshape_png(thumb_bytes, shape)
+    item = PageItem(id=str(uuid.uuid4()), label=label, kind="image", width=width, height=height,
+                    thumb_bytes=thumb_bytes, source_path=path if data is None else None,
+                    raster_bytes=data, rotate=rotate, shape=tuple(shape) if shape else None)
+    if data is None and path:
+        try:
+            item._disk_bytes = os.path.getsize(path)
+        except OSError:
+            pass
+    return item
+
+
+_T = getattr(Image, "Transpose", Image)          # Pillow 9.1 이전에는 Image.ROTATE_90 등
+ROTATE_TRANSPOSE = {90: _T.ROTATE_270, 180: _T.ROTATE_180, 270: _T.ROTATE_90}
+
+
+def rotate_image(im: Image.Image, rotate: Optional[int]) -> Image.Image:
+    """시계 방향으로 rotate(0/90/180/270)도 돌린 그림(픽셀 그대로 옮김, 0이나 None이면 그대로)."""
+    t = ROTATE_TRANSPOSE.get((rotate or 0) % 360)
+    return im.transpose(t) if t is not None else im
+
+
+def reshape_image(im: Image.Image, shape: Optional[tuple]) -> Image.Image:
+    """화면에 보여 줄 때만: 폭은 그대로 두고 높이를 shape(폭, 높이) 비율에 맞춰 늘이거나 줄인 그림."""
+    if not shape:
+        return im
+    h = max(1, round(im.width * shape[1] / shape[0]))
+    return im if h == im.height else im.resize((im.width, h), Image.LANCZOS)
+
+
+def _reshape_png(png: bytes, shape: tuple) -> bytes:
+    with Image.open(io.BytesIO(png)) as im:
+        im.load()
+        out = reshape_image(im, shape)
+        buf = io.BytesIO()
+        out.save(buf, format="PNG", compress_level=1)
+    return buf.getvalue()
+
+
+def _rotate_png(png: bytes, rotate: int) -> bytes:
+    with Image.open(io.BytesIO(png)) as im:
+        out = rotate_image(im, rotate)
+        buf = io.BytesIO()
+        out.save(buf, format="PNG", compress_level=1)
+    return buf.getvalue()
 
 
 def _build_image_item(im: Image.Image, label: str, source_path: Optional[str],
@@ -279,14 +347,33 @@ def _fit_blank_pages(output, blank_fit: List[int]) -> None:
             dp.obj.Rotate = int(rot)
 
 
+def _reshape_page(pdf, page, shape: tuple, rotate: int) -> None:
+    """img2pdf가 만든 이미지 한 장짜리 쪽을, 화면 방향 비율 shape(폭, 높이)의 쪽으로 바꾼다. 폭은 그대로, 높이만 바꾸고
+    이미지는 그 칸을 꽉 채우게 늘인다(이미지 데이터는 그대로). 쪽 회전(rotate)이 90/270이면 비율을 돌려서 계산한다."""
+    box = [float(v) for v in page.obj.MediaBox]
+    w = box[2] - box[0]
+    sw, sh = shape
+    if rotate % 180:
+        sw, sh = sh, sw
+    h = w * sh / sw
+    name = next(iter(page.obj.Resources.XObject.keys()))
+    page.obj.MediaBox = pikepdf.Array([0, 0, w, h])
+    for key in ("/CropBox", "/TrimBox", "/BleedBox", "/ArtBox"):
+        if key in page.obj:
+            del page.obj[key]
+    page.obj.Contents = pdf.make_stream(f"q {w:.4f} 0 0 {h:.4f} 0 0 cm {name} Do Q".encode("ascii"))
+
+
 def export_pdf(
     items: List[PageItem],
     output_path: Union[str, Path],
     cover_id: Optional[str] = None,
     meta=None,
-) -> None:
+    trim_margins: bool = False,
+) -> int:
     """items를 순서대로(단, cover_id가 있으면 그 항목을 맨 앞으로) PDF로 내보낸다.
     meta(book_meta.BookMeta)가 있으면 서지 정보(문서 정보 + XMP)로 넣는다(pdf_meta.apply_meta).
+    trim_margins면 쪽 그대로 넣는 PDF 쪽의 흰 여백을 잘라 보이는 영역만 좁힌다(margin_trim.py - 내용은 그대로). 돌려주는 값은 여백을 자른 쪽 수.
 
     - kind='image' 항목: 무용지(페이지 크기 = 이미지 픽셀 크기) 페이지로 새로 변환.
     - kind='pdf_page' 항목: 원본 PDF의 그 페이지 객체를 pikepdf로 그대로 복사(재인코딩/래스터화
@@ -313,7 +400,7 @@ def export_pdf(
     tmp_dir = tempfile.mkdtemp(prefix="meltpdf_")
     chunk_no = 0
 
-    def flush(pending: List[Union[str, bytes]]):
+    def flush(pending: List[tuple]):
         """모인 이미지들을 임시 PDF 파일 하나로 만들어 그 페이지들을 output에 이어 붙인다."""
         nonlocal chunk_no
         if not pending:
@@ -321,15 +408,25 @@ def export_pdf(
         chunk_no += 1
         tmp_path = os.path.join(tmp_dir, f"chunk{chunk_no}.pdf")
         with open(tmp_path, "wb") as f:
-            img2pdf.convert(pending, outputstream=f)
+            # 원본에 든 EXIF 회전은 따르지 않는다: 보통 이미지는 불러올 때 이미 반영했고(PNG), PDF에서 꺼낸 이미지는 PDF가 따르지 않으므로.
+            img2pdf.convert([p[0] for p in pending], outputstream=f, rotation=img2pdf.Rotation.none)
         tmp_pdf = pikepdf.open(tmp_path)
         open_handles.append(tmp_pdf)
+        start = len(output.pages)
         output.pages.extend(tmp_pdf.pages)
+        for k, (_src, rot, shape) in enumerate(pending):
+            page = output.pages[start + k]
+            if shape:                                  # PDF에서 보이던 비율로(v0.21.0): 쪽과 이미지 칸을 그 비율로
+                _reshape_page(output, page, shape, rot)
+            if rot:                                    # PDF에서 돌려 놓여 있던 이미지: 바이트는 그대로, 쪽 회전으로(v0.21.0)
+                page.obj.Rotate = int(rot)
         pending.clear()
 
     blank_fit: List[int] = []              # 크기를 앞(또는 뒤) 쪽에 맞출 빈 쪽 번호(0부터)
+    fitz_cache: dict = {}                   # 여백 찾기용으로 연 원본 PDF(PyMuPDF)
+    trimmed = 0
     try:
-        pending: List[Union[str, bytes]] = []
+        pending: List[tuple] = []                # (이미지 원본, 쪽 회전, 보일 비율)
         pending_bytes = 0
         for item in ordered:
             if item.kind == "pdf_page":
@@ -341,6 +438,14 @@ def export_pdf(
                     src_cache[item.origin_pdf] = src_pdf
                     open_handles.append(src_pdf)
                 output.pages.append(src_pdf.pages[item.origin_page_no - 1])
+                if trim_margins:
+                    fdoc = fitz_cache.get(item.origin_pdf)
+                    if fdoc is None:
+                        fdoc = fitz_cache[item.origin_pdf] = fitz.open(item.origin_pdf)
+                    box = margin_trim.content_box(fdoc[item.origin_page_no - 1])
+                    if box is not None:
+                        margin_trim.apply(output.pages[-1], box)
+                        trimmed += 1
             elif item.unreadable:
                 # 전혀 못 읽은 이미지: 그 자리에 빈 쪽(v0.19.6). 머리에서 크기를 찾았으면 그 크기(96dpi 기준 - 보통 이미지와 같은 규칙),
                 # 아니면 바로 앞 쪽과 같은 크기(맨 앞이면 바로 뒤 쪽) - 크기는 모든 쪽을 넣은 뒤 맞춘다.
@@ -357,15 +462,18 @@ def export_pdf(
                 if pending and (pending_bytes + size > CHUNK_MAX_BYTES or len(pending) >= CHUNK_MAX_PAGES):
                     flush(pending)
                     pending_bytes = 0
-                pending.append(source)
+                pending.append((source, item.rotate or 0, item.shape))
                 pending_bytes += size
         flush(pending)
         _fit_blank_pages(output, blank_fit)
 
         pdf_meta.apply_meta(output, meta)
         output.save(output_path)
+        return trimmed
     finally:
         output.close()
+        for d in fitz_cache.values():
+            d.close()
         for h in open_handles:
             try:
                 h.close()

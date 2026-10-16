@@ -53,6 +53,9 @@ def load_full_image(item: pdf_core.PageItem) -> Image.Image:
     try:
         with Image.open(io.BytesIO(data) if data is not None else path) as im:
             im.load()
+            if item.rotate or item.shape:                  # PDF에서 꺼낸 이미지: 돌려 놓인 방향, 보이던 비율(v0.21.0)
+                out = pdf_core.reshape_image(pdf_core.rotate_image(im, item.rotate), item.shape)
+                return out.copy() if out is im else out
             return im.copy()
     except Exception:
         return damaged_image.open_tolerant(data=data, path=path)     # 깨진 이미지도 읽히는 부분까지 보여준다

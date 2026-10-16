@@ -17,7 +17,7 @@ except Exception:
     HAS_DND = False
 
 APP_NAME = "meltPDF"
-APP_VERSION = "0.20.1"           # 실제로 확인된(고쳐졌다고 검증된) 진전이 있을 때만 올릴 것 - 같은 버그를 다시 시도하는 빌드는 버전을 올리지 않고 재사용한다
+APP_VERSION = "0.21.0"           # 실제로 확인된(고쳐졌다고 검증된) 진전이 있을 때만 올릴 것 - 같은 버그를 다시 시도하는 빌드는 버전을 올리지 않고 재사용한다
 WINDOW_TITLE = f"{APP_NAME} v{APP_VERSION}"   # 창 타이틀바(버전 포함)
 APP_TITLE = APP_NAME                          # 메시지박스 등에는 버전 없이 표시
 
@@ -42,5 +42,7 @@ BG_COVER = "#fff2cc"
 BG_DRAGGING = "#cfcfcf"
 DAMAGED_OUTLINE = "#d93025"             # 손상되어 일부만 표시되는 이미지 타일의 테두리 색
 DAMAGED_OUTLINE_W = 3                   # 그 테두리 두께(px)
+PDF_PAGE_OUTLINE = "#1f6fd1"            # PDF에서 이미지로 꺼내지 못하고 쪽 그대로 넣은 타일의 테두리 색(v0.21.0, 두께는 위와 같음)
+BADGE_R = 8                             # 그 타일 안쪽 오른쪽 위의 [?] 동그라미 반지름(px)
 DROP_MARK = "#1a73e8"                   # 드래그 중 "여기에 놓인다"를 보여주는 삽입 표시선 색
 DROP_MARK_W = 4                         # 삽입 표시선 두께(px)

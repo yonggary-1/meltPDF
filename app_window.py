@@ -9,6 +9,8 @@ import tkinter as tk
 from tkinter import ttk
 
 import app_icon
+import page_fixes
+import page_reason_dialog
 import ui_mailbox
 from book_loader import BookLoader
 from config import WINDOW_TITLE
@@ -26,6 +28,8 @@ from file_drop_mark import FileDropMark
 from load_stop import LoadStopButton
 from meta_dialog import MetaDialog
 from page_actions import PageActions
+from page_reason_badge import PageReasonBadge
+from pdf_page_nav import PdfPageNav
 from ram_meter import RamMeter
 from rename_pages import RenamePages
 from selected_export import SelectedExporter
@@ -62,6 +66,9 @@ class App:
         self.view = TileView(root, self.model)
         self.view.frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(4, 0))
 
+        # [?](쪽 그대로 넣은 PDF 쪽의 이유 보기) - 누름을 선택/끌기보다 먼저 받아야 해서 그것들보다 먼저 만든다(v0.21.0)
+        self.reason_badge = PageReasonBadge(self.view, self.model, self._open_reason)
+        page_fixes.register()             # [?] 창의 해결 방법 버튼들
         self.selection = Selection(self.view, self.model)
         self.keynav = KeyNav(self.view, self.model)
         self.drag = DragReorder(root, self.view, self.model)
@@ -76,7 +83,7 @@ class App:
         self.settings_dialog = SettingsDialog(root, self.settings)
         self.meta_dialog = MetaDialog(root, self.model)
         self.actions = PageActions(self.view.canvas, self.model)
-        self.exporter = Exporter(root, self.model, self.status)
+        self.exporter = Exporter(root, self.model, self.status, self.settings)
         self.image_exporter = ImageExporter(root, self.model, self.status, self.settings)
         self.selected_exporter = SelectedExporter(root, self.model, self.status)
 
@@ -116,6 +123,7 @@ class App:
 
         tb.add(ttk.Separator(tb, orient=tk.VERTICAL), gap_before=8)
         tb.add(ttk.Button(tb, text="서지 정보(Metadata)", command=self.meta_dialog.open))
+        tb.add(self.exporter.make_trim_check(tb))       # PDF로 내보낼 때 쪽 그대로인 PDF 쪽의 흰 여백 없애기(v0.21.0)
         self._fill_pdf_box()
 
     def _limit_min_width(self):
@@ -153,6 +161,9 @@ class App:
         # [깨진 이미지 N장] - 빨간 테두리 이미지를 차례로 찾아가는 버튼(삭제 버튼들과 내보내기 버튼 사이)
         self.damaged_nav = DamagedNav(bar, self.view, self.model, self.status, self.keynav)
         self.damaged_nav.button.pack(side=tk.LEFT, padx=(16, 0), fill=tk.Y)   # 높이를 옆 버튼들과 맞춘다
+        # [페이지 추출 N장] - PDF에서 쪽 그대로 넣은(파란 테두리) 항목을 차례로 찾아가는 버튼(v0.21.0)
+        self.pdf_page_nav = PdfPageNav(bar, self.view, self.model, self.status, self.keynav)
+        self.pdf_page_nav.button.pack(side=tk.LEFT, padx=(6, 0), fill=tk.Y)
         # 메모리 미터는 윗줄(상태 문구 줄)의 오른쪽 끝에 둔다 - 아랫줄에 내보내기 버튼이 셋이라 좁은 창에서 잘리지 않게.
         self.ram_meter = RamMeter(self.status.top_row)
         self.ram_meter.frame.pack(side=tk.RIGHT, padx=(10, 0), before=self.status.label)
@@ -162,6 +173,11 @@ class App:
         ttk.Button(bar, text="설정", command=self.settings_dialog.open).pack(side=tk.RIGHT)
         self.image_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, SETTINGS_GAP))
         self.selected_exporter.make_button(bar).pack(side=tk.RIGHT, padx=(0, 6))
+
+    def _open_reason(self, iid: str):
+        item = self.model.items.get(iid)
+        if item is not None:
+            page_reason_dialog.open_dialog(self.root, self, item)
 
     def state_summary(self) -> str:
         """버그 리포트에 넣을 지금 상태(bug_report.py가 부름)."""

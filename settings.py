@@ -21,6 +21,7 @@ DEFAULTS: Dict[str, Any] = {
     "ram_limit_gb": 0.0,        # 0 = 자동(그 순간 남은 메모리의 절반)
     "image_export_dir": "",     # 이미지 내보내기 기본 폴더 ("" = 지정 안 함)
     "folder_recursive": False,  # [폴더 (이미지) 추가] 창의 "서브 폴더의 이미지 파일도 전부 추가" 체크 상태
+    "trim_pdf_margins": False,  # PDF로 내보낼 때 쪽 그대로인 PDF 쪽의 흰 여백 없애기(툴바 체크 상자, v0.21.0)
 }
 
 
@@ -51,6 +52,9 @@ class Settings:
         limit = loaded.get("ram_limit_gb")
         if isinstance(limit, (int, float)) and not isinstance(limit, bool) and limit >= 0:
             self._data["ram_limit_gb"] = float(limit)
+        trim = loaded.get("trim_pdf_margins")
+        if isinstance(trim, bool):
+            self._data["trim_pdf_margins"] = trim
         export_dir = loaded.get("image_export_dir")
         if isinstance(export_dir, str):
             self._data["image_export_dir"] = export_dir

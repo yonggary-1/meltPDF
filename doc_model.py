@@ -148,6 +148,29 @@ class DocModel:
             self.added_ids = None
             self.added_at = None
 
+    def replace(self, iid: str, new_items) -> None:
+        """항목 하나를 새 항목(들)로 바꾼다(그 자리에 차례로). 표지였으면 첫 새 항목이 표지가 되고, 첫 새 항목을 선택한다
+        (PDF 쪽을 이미지로 꺼내는 해결 방법 - page_fixes.py)."""
+        new_items = list(new_items)
+        if iid not in self.items or not new_items:
+            return
+        pos = self.order.index(iid)
+        self.order.pop(pos)
+        self.items.pop(iid, None)
+        self.photo_cache.pop(iid, None)
+        self.selected.discard(iid)
+        ids = []
+        for it in new_items:
+            self.items[it.id] = it
+            ids.append(it.id)
+        self.order[pos:pos] = ids
+        if self.cover_id == iid:
+            self.cover_id = ids[0]
+        self.selected = {ids[0]}
+        activity_log.log(f"항목 바꿈: 자리 {pos}, 1장 -> {len(ids)}장")
+        self._emit("structure")
+        self._emit("selection")
+
     def remove_selected(self):
         if not self.selected:
             return
